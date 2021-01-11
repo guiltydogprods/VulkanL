@@ -1,0 +1,17 @@
+.vs/
+bin/
+obj/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.vcxproj
+*.vcxproj.user
+*.vcxproj.filters
+*.ipch
+*.opendb
+*.VC.db
+Debug/
+Release/
+Framework/
+Vulkan/

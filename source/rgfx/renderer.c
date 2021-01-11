@@ -1,0 +1,1284 @@
+#include "stdafx.h"
+#include "renderer.h"
+#ifdef RE_PLATFORM_WIN64
+//#include "GL4.6/renderer_gl.h"
+#else
+//#include "GLES3.2/renderer_gles.h"
+#endif
+//#include "resource.h"
+#include "assert.h"
+#include "rgfx/mesh.h"
+//#include "gui.h"
+#include "system.h"
+#include "math/vec4.h"
+//#include "stb/stretchy_buffer.h"
+//#include "hash.h"
+#include <threads.h>
+
+#ifdef VRSYSTEM_OCULUS
+#include "OVR_CAPI_GL.h"
+#endif
+
+#ifndef RE_PLATFORM_WIN64
+#include "VrApi.h"
+#include "VrApi_Helpers.h"
+#include "VrApi_SystemUtils.h"
+#include "VrApi_Input.h"
+
+//extern VrApi vrapi;
+#endif
+
+//#include "vrsystem.h"
+
+#define USE_SEPARATE_SHADERS_OBJECTS
+#define BUFFER_OFFSET(i) ((char *)NULL + (i))
+
+extern inline GLuint rgfx_getNativeBufferFlags(uint32_t flags);
+extern inline rgfx_buffer rgfx_createBuffer(const rgfx_bufferDesc* desc);
+extern inline void* rgfx_mapBuffer(rgfx_buffer buffer);
+extern inline void* rgfx_mapBufferRange(rgfx_buffer buffer, int64_t offset, int64_t size);
+extern inline void rgfx_unmapBuffer(rgfx_buffer buffer);
+extern inline void rgfx_bindBuffer(int32_t index, rgfx_buffer buffer);
+extern inline void rgfx_bindBufferRange(int32_t index, rgfx_buffer buffer, int64_t offset, int64_t size);
+
+extern inline rgfx_vertexBuffer rgfx_createVertexBuffer(const rgfx_vertexBufferDesc* desc);
+extern inline uint32_t rgfx_writeVertexData(rgfx_vertexBuffer vb, size_t sizeInBytes, uint8_t* vertexData);
+extern inline uint32_t rgfx_writeIndexData(rgfx_vertexBuffer vb, size_t sizeInBytes, uint8_t* indexData, size_t sourceIndexSize);
+
+extern inline GLenum rgfx_getNativePrimType(rgfx_primType primType);
+extern inline GLenum rgfx_getNativeTextureFormat(rgfx_format format);
+extern inline rgfx_pass rgfx_createPass(const rgfx_passDesc* desc);
+
+const char* validationLayers[] =
+{
+	"VK_LAYER_LUNARG_standard_validation"
+};
+
+#ifdef NDEBUG
+const bool kEnableValidationLayers = false;
+#else
+const bool kEnableValidationLayers = true;
+#endif
+
+const uint64_t  kDefaultFenceTimeout = 100000000000;
+
+typedef struct rgfx_device_vk
+{
+	VkInstance							vkInstance;
+	VkDebugReportCallbackEXT			vkDebugReportCallback;
+
+	VkSurfaceKHR						vkSurface;
+
+	uint32_t							vkPhysicalDeviceCount;
+	uint32_t							selectedDevice;
+	VkPhysicalDevice*					vkPhysicalDevices;
+	VkPhysicalDeviceProperties*			vkPhysicalDeviceProperties;
+	VkPhysicalDeviceMemoryProperties*	vkPhysicalDeviceMemoryProperties;
+	VkPhysicalDeviceFeatures*			vkPhysicalDeviceFeatures;
+
+	uint32_t							vkQueueFamilyPropertiesCount;
+	VkQueueFamilyProperties*			vkQueueFamilyProperties;
+
+	uint32_t							vkGraphicsQueueFamilyIndex;
+	uint32_t							vkPresentQueueFamilyIndex;
+
+	VkDevice							vkDevice;
+
+	VkQueue								vkGraphicsQueue;
+	VkQueue								vkPresentQueue;
+
+	VkSemaphore							vkImageAvailableSemaphore;
+	VkSemaphore							vkRenderingFinishedSemaphore;
+
+	VkExtent2D							vkSwapChainExtent;
+	VkFormat							vkSwapChainFormat;
+	VkSwapchainKHR						vkSwapChain;
+	uint32_t							vkSwapChainImageCount;
+}rgfx_device_vk;
+
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-pointer-arithmetic"
+
+//static __attribute__((aligned(64))) rgfx_rendererData s_rendererData = {};
+static __attribute__((aligned(64))) rgfx_device_vk s_device = {};
+__attribute__((aligned(64))) rgfx_rendererData s_rendererData = {};
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objType, uint64_t obj, size_t location, int32_t code, const char* layerPrefix, const char* msg, void* userData)
+{
+	if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+		rsys_print("ERROR: validation layer: %s\n", msg);
+	else
+		rsys_print("WARNING: validation layer: %s\n", msg);
+	return VK_FALSE;
+}
+
+#if 0
+#ifdef _DEBUG
+void openglCallbackFunction(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
+{
+	(void)source; (void)type; (void)id;
+	(void)severity; (void)length; (void)userParam;
+
+	if (severity == GL_DEBUG_SEVERITY_MEDIUM || severity == GL_DEBUG_SEVERITY_HIGH)
+		printf("%s\n", message);
+	if (severity == GL_DEBUG_SEVERITY_HIGH)
+	{
+		if (type != GL_DEBUG_TYPE_PERFORMANCE)
+		{
+			printf("High Severity...\n");
+		}
+		//			abort();
+	}
+}
+#endif
+#endif
+
+void rgfx_initialize(const rgfx_initParams* params)
+{
+#if 0
+	memset(&s_rendererData, 0, sizeof(rgfx_rendererData));
+	rgfx_iniializeScene();
+
+	rgfx_initializeExtensions(params->extensions);
+
+	s_rendererData.numEyeBuffers = 1;
+	if (rvrs_isInitialized())
+	{
+		memset(s_rendererData.eyeFbInfo, 0, sizeof(rgfx_eyeFbInfo) * kEyeCount);
+		s_rendererData.numEyeBuffers = (int32_t)kEyeCount; // VRAPI_FRAME_LAYER_EYE_MAX;
+
+		int32_t numBuffers = params->extensions.multi_view ? 1 : kEyeCount;
+		// Create the frame buffers.
+		for (int32_t eye = 0; eye < numBuffers; eye++)
+		{
+			rgfx_createEyeFrameBuffers(eye, params->eyeWidth, params->eyeHeight, kFormatSRGBA8, 4, params->extensions.multi_view);
+		}
+		s_rendererData.numEyeBuffers = numBuffers;
+	}
+
+	GLint numVertexAttribs;
+	glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &numVertexAttribs);
+	s_rendererData.numVertexBuffers = 0;
+#ifdef _DEBUG
+	glEnable(GL_DEBUG_OUTPUT);
+	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+	glDebugMessageCallback(openglCallbackFunction, NULL);
+	glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, NULL, true);
+#endif
+
+	glDepthFunc(GL_LESS);
+	glCullFace(GL_BACK);
+	glDepthMask(GL_TRUE);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_SCISSOR_TEST);
+	glEnable(GL_CULL_FACE);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_FRAMEBUFFER_SRGB);
+
+	const uint32_t bufferSize = 2 * 1024 * 1024;
+
+	// Unskinned Vertex Buffer
+	rgfx_vertexBuffer unskinnedVb = { 0 };
+	{
+		rgfx_vertexElement vertexStreamElements[] =
+		{
+			{ kFloat, 3, false },
+			{ kInt2_10_10_10_Rev, 4, true },
+			{ kInt2_10_10_10_Rev, 4, true },
+			{ kInt2_10_10_10_Rev, 4, true },
+			{ kFloat, 2, false },
+		};
+		unskinnedVb = rgfx_createVertexBuffer(&(rgfx_vertexBufferDesc) {
+			.format = rgfx_registerVertexFormat(STATIC_ARRAY_SIZE(vertexStreamElements), vertexStreamElements),
+			.capacity = bufferSize,
+			.indexBuffer = rgfx_createBuffer(&(rgfx_bufferDesc) {
+				.type = kIndexBuffer,
+				.capacity = bufferSize,
+				.stride = sizeof(uint16_t),
+				.flags = kMapWriteBit | kDynamicStorageBit
+			})
+		});
+	}
+
+	// Skinned Vertex Buffer
+	rgfx_vertexBuffer skinnedVb = { 0 };
+	{
+		rgfx_vertexElement vertexStreamElements[] =
+		{
+			{ kFloat, 3, false },
+			{ kInt2_10_10_10_Rev, 4, true },
+			{ kInt2_10_10_10_Rev, 4, true },
+			{ kInt2_10_10_10_Rev, 4, true },
+			{ kFloat, 2, false },
+			{ kSignedInt, 4, false },
+			{ kFloat, 4, false },
+		};
+		skinnedVb = rgfx_createVertexBuffer(&(rgfx_vertexBufferDesc) {
+			.format = rgfx_registerVertexFormat(STATIC_ARRAY_SIZE(vertexStreamElements), vertexStreamElements),
+			.capacity = bufferSize,
+			.indexBuffer = rgfx_createBuffer(&(rgfx_bufferDesc) {
+				.type = kIndexBuffer,
+				.capacity = bufferSize,
+				.stride = sizeof(uint16_t),
+				.flags = kMapWriteBit | kDynamicStorageBit
+			})
+		});
+	}
+
+	s_rendererData.cameraTransforms = rgfx_createBuffer(&(rgfx_bufferDesc) {
+		.capacity = sizeof(rgfx_cameraTransform) * MAX_CAMERAS,
+		.stride = sizeof(rgfx_cameraTransform),
+		.flags = kMapWriteBit
+	});
+
+	s_rendererData.lights = rgfx_createBuffer(&(rgfx_bufferDesc) {
+		.capacity = sizeof(rgfx_light) * 8,
+		.stride = sizeof(rgfx_light),
+		.flags = kMapWriteBit
+	});
+#endif
+}
+
+void rgfx_initPostEffects(void)
+{
+#if 0
+	s_rendererData.fsQuadPipeline = rgfx_createPipeline(&(rgfx_pipelineDesc) {
+		.vertexShader = rgfx_loadShader("shaders/fsquad.vert", kVertexShader, 0),
+		.fragmentShader = rgfx_loadShader("shaders/fsquad.frag", kFragmentShader, 0),
+	});
+#endif
+}
+
+rgfx_bufferInfo* rgfx_getVertexBufferInfo(rgfx_vertexBuffer vb)
+{
+#if 0
+	int32_t vbIdx = vb.id - 1;
+	assert(vbIdx >= 0);
+	rgfx_buffer buffer = s_rendererData.vertexBufferInfo[vbIdx].vertexBuffer;
+	int32_t bufferIdx = buffer.id - 1;
+	assert(bufferIdx >= 0);
+	return &s_rendererData.buffers[bufferIdx];
+#endif
+	return NULL;
+}
+
+rgfx_buffer rgfx_getVertexBufferBuffer(rgfx_vertexBuffer vb, rgfx_bufferType type)
+{
+#if 0
+	int32_t vbIdx = vb.id - 1;
+	assert(vbIdx >= 0);
+	switch (type)
+	{
+	case kVertexBuffer:
+		return s_rendererData.vertexBufferInfo[vbIdx].vertexBuffer;
+		break;
+	case kIndexBuffer:
+		return s_rendererData.vertexBufferInfo[vbIdx].indexBuffer;
+		break;
+	default:
+		rsys_print("Warning: Invalid buffer type requested.\n");
+	};
+#endif
+	return (rgfx_buffer) { 0 };
+}
+
+rgfx_bufferInfo* rgfx_getIndexBufferInfo(rgfx_vertexBuffer vb)
+{
+#if 0
+	int32_t vbIdx = vb.id - 1;
+	assert(vbIdx >= 0);
+	rgfx_buffer buffer = s_rendererData.vertexBufferInfo[vbIdx].indexBuffer;
+	int32_t bufferIdx = buffer.id - 1;
+	assert(bufferIdx >= 0);
+	return &s_rendererData.buffers[bufferIdx];
+#endif
+	return NULL;
+}
+
+void rgfx_writeCompressedMipImageData(rgfx_texture tex, int32_t mipLevel, rgfx_format format, int32_t width, int32_t height, int32_t imageSize, const void* data)
+{
+#if 0
+	int32_t texIdx = tex.id - 1;
+	assert(texIdx >= 0);
+	assert(texIdx < MAX_TEXTURES);
+
+	GLenum internalFormat = rgfx_getNativeTextureFormat(format);
+
+	rgfx_textureInfo* texInfo = &s_rendererData.textures[texIdx];
+	glBindTexture(texInfo->target, texInfo->name);
+	glCompressedTexImage2D(texInfo->target, mipLevel, internalFormat, width, height, 0, imageSize, data);
+	glBindTexture(texInfo->target, 0);
+#endif
+}
+
+void rgfx_writeCompressedTexSubImage3D(rgfx_texture tex, int32_t mipLevel, int32_t xOffset, int32_t yOffset, int32_t zOffset, int32_t width, int32_t height, int32_t depth, rgfx_format format, int32_t imageSize, const void* data)
+{
+#if 0
+	int32_t texIdx = tex.id - 1;
+	assert(texIdx >= 0);
+	assert(texIdx < MAX_TEXTURES);
+
+	GLenum internalFormat = rgfx_getNativeTextureFormat(format);
+	if (s_rendererData.textures[texIdx].internalFormat == 0)
+	{
+		assert(mipLevel == 0);
+		GLuint name = s_rendererData.textures[texIdx].name;
+		GLenum target = s_rendererData.textures[texIdx].target;
+		glBindTexture(target, name);
+		int32_t allocDepth = s_rendererData.textures[texIdx].depth;
+		int32_t mipCount = log2(width) + 1;
+		switch (target)
+		{
+		case GL_TEXTURE_2D:
+			glTexStorage2D(target, mipCount, internalFormat, width, height);
+			break;
+		case GL_TEXTURE_2D_ARRAY:
+			assert(allocDepth > 0);
+			glTexStorage3D(target, mipCount, internalFormat, width, height, allocDepth);
+			break;
+		default:
+			rsys_print("Currently unsupported texture type.\n");
+			assert(0);
+		}
+		s_rendererData.textures[texIdx].width = width;
+		s_rendererData.textures[texIdx].height = height;
+		s_rendererData.textures[texIdx].internalFormat = internalFormat;
+	}
+
+	assert(internalFormat == s_rendererData.textures[texIdx].internalFormat);
+
+	rgfx_textureInfo* texInfo = &s_rendererData.textures[texIdx];
+	glBindTexture(texInfo->target, texInfo->name);
+	glCompressedTexSubImage3D(texInfo->target, mipLevel, xOffset, yOffset, zOffset, width, height, depth, internalFormat, imageSize, data);
+	glBindTexture(texInfo->target, 0);
+#endif
+}
+
+rgfx_bufferInfo* rgfx_getBufferInfo(rgfx_buffer buffer)
+{
+#if 0
+	int32_t bufferIdx = buffer.id - 1;
+	assert(bufferIdx >= 0);
+	return &s_rendererData.buffers[bufferIdx];
+#endif
+	return NULL;
+}
+
+GLint g_viewIdLoc = -1;
+
+void rgfx_bindEyeFrameBuffer(int32_t eye)
+{
+#if 0
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_rendererData.eyeFbInfo[eye].colourBuffers[0]);
+#endif
+}
+
+rgfx_eyeFbInfo* rgfx_getEyeFrameBuffer(int32_t eye)
+{
+#if 0
+	assert(eye >= 0);
+	assert(eye < 2);
+
+	return &s_rendererData.eyeFbInfo[s_rendererData.numEyeBuffers == 1 ? 0 : eye];
+#endif
+	return NULL;
+}
+
+void rgfx_bindTexture(int32_t slot, rgfx_texture tex)
+{
+#if 0
+	int32_t texIdx = tex.id - 1;
+	assert(texIdx >= 0);
+	assert(texIdx < MAX_TEXTURES);
+	assert(slot >= 0);
+	assert(slot < 16);
+	glActiveTexture(GL_TEXTURE0+slot);
+	glBindTexture(s_rendererData.textures[texIdx].target, s_rendererData.textures[texIdx].name);
+#endif
+}
+
+void rgfx_bindVertexBuffer(rgfx_vertexBuffer vb)
+{
+#if 0
+	int32_t vbIdx = vb.id - 1;
+	assert(vbIdx >= 0);
+	glBindVertexArray(s_rendererData.vertexBufferInfo[vbIdx].vao);
+#endif
+}
+
+void rgfx_unbindVertexBuffer()
+{
+#if 0
+	glBindVertexArray(0);
+#endif
+}
+
+uint32_t rgfx_bindIndexBuffer(rgfx_buffer buffer)
+{
+#if 0
+	int32_t bufferIdx = buffer.id - 1;
+	assert(bufferIdx >= 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_rendererData.buffers[bufferIdx].name);
+	return s_rendererData.buffers[bufferIdx].writeIndex / s_rendererData.buffers[bufferIdx].stride;
+#endif
+	return 0;
+}
+
+rgfx_vertexFormat rgfx_registerVertexFormat(int32_t numVertexElements, rgfx_vertexElement* vertexElements)
+{
+#if 0
+	assert(s_rendererData.numVertexFormats < MAX_VERTEX_FORMATS);
+
+	//	(void)numVertexElements;
+	//	(void)vertexElements;
+	//	uint32_t hash;
+	//	MurmurHash3_x86_32(vertexElements, sizeof(VertexElement) * numVertexElements, 0xdeadbeef, &hash);
+	//	printf("Hash: 0x%08x\n", hash);
+
+	uint32_t vertexFormatHash = hashData(vertexElements, sizeof(rgfx_vertexElement) * numVertexElements); // , 0xdeadbeef, & hash);
+	int32_t vertexFormatIndex = rsys_hm_find(&s_rendererData.vertexFormatLookup, vertexFormatHash);
+	if (vertexFormatIndex < 0)
+	{
+		uint8_t elementOffset = 0;
+		vertexFormatIndex = s_rendererData.numVertexFormats++;
+		for (int32_t i = 0; i < numVertexElements; ++i)
+		{
+			uint16_t type = vertexElements[i].m_type;
+			size_t elementSize = 0;
+			char* elementName = NULL;
+			switch (type)
+			{
+			case kFloat:
+				elementSize = sizeof(GLfloat) * vertexElements[i].m_size;
+				elementName = "GL_FLOAT";
+				break;
+			case kInt2_10_10_10_Rev:
+				elementSize = sizeof(GLint);
+				elementName = "GL_INT_2_10_10_10_REV";
+				break;
+			case kSignedInt:
+				elementSize = sizeof(GLint) * vertexElements[i].m_size;
+				elementName = "GL_INT";
+				break;
+			case kUnsignedByte:
+				elementSize = sizeof(GLubyte) * vertexElements[i].m_size;
+				elementName = "GL_UNSIGNED_BYTE";
+				break;
+			default:
+				assert(0);
+			}
+			printf("Element: Index = %d, Size = %d, Type = %s, Offset = %d\n", i, vertexElements[i].m_size, elementName, elementOffset);
+			elementOffset += elementSize;
+			s_rendererData.vertexFormats[vertexFormatIndex].elements[i].m_type = vertexElements[i].m_type;
+			s_rendererData.vertexFormats[vertexFormatIndex].elements[i].m_size = vertexElements[i].m_size;
+			s_rendererData.vertexFormats[vertexFormatIndex].elements[i].m_normalized = vertexElements[i].m_normalized;
+		}
+		s_rendererData.vertexFormats[vertexFormatIndex].numElements = numVertexElements;
+		s_rendererData.vertexFormats[vertexFormatIndex].stride = elementOffset;
+		s_rendererData.vertexFormats[vertexFormatIndex].hash = vertexFormatHash;
+		rsys_hm_insert(&s_rendererData.vertexFormatLookup, vertexFormatHash, vertexFormatIndex);
+
+		printf("Vertex stride = %d\n", elementOffset);
+	}
+	return (rgfx_vertexFormat) { .id = vertexFormatIndex + 1 };
+#endif
+	return (rgfx_vertexFormat) { 0 };
+}
+
+rgfx_vertexFormatInfo* rgfx_getVertexFormatInfo(rgfx_vertexFormat format)
+{
+#if 0
+	int32_t formatIdx = format.id - 1;
+	assert(formatIdx >= 0);
+	return &s_rendererData.vertexFormats[formatIdx];
+#endif
+	return NULL;
+}
+
+void rgfx_updateTransforms(const rgfx_cameraDesc* cameraDesc)
+{
+#if 0
+	int32_t numCamera = cameraDesc->count > 0 ? cameraDesc->count : 1;
+
+	int32_t idx = s_rendererData.cameraTransforms.id - 1;
+	assert(idx >= 0);
+	glBindBuffer(GL_UNIFORM_BUFFER, s_rendererData.buffers[idx].name);
+	rgfx_cameraTransform* block = (rgfx_cameraTransform*)glMapBufferRange(GL_UNIFORM_BUFFER, 0, sizeof(rgfx_cameraTransform) * numCamera, s_rendererData.buffers[idx].flags | GL_MAP_INVALIDATE_BUFFER_BIT);
+
+	for (int32_t cam = 0; cam < numCamera; ++cam)
+	{
+		mat4x4 viewProjMatrx = mat4x4_mul(cameraDesc->camera[cam].projectionMatrix, cameraDesc->camera[cam].viewMatrix);
+		block[cam].position = s_rendererData.cameras[cam].position = cameraDesc->camera[cam].position;
+		block[cam].viewProjectionMatrix = s_rendererData.cameras[cam].viewProjectionMatrix = viewProjMatrx;
+		s_rendererData.cameras[cam].viewMatrix = cameraDesc->camera[cam].viewMatrix;
+		s_rendererData.cameras[cam].projectionMatrix = cameraDesc->camera[cam].projectionMatrix;
+	}
+	glUnmapBuffer(GL_UNIFORM_BUFFER);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+#endif
+}
+
+rgfx_texture rgfx_createTextureArray(const char** textureNames, int32_t numTextures)
+{
+#if 0
+	rgfx_texture texArray = rgfx_createTexture(&(rgfx_textureDesc) {
+		.depth = numTextures,
+		.type = kTexture2DArray,
+		.minFilter = kFilterLinearMipmapLinear,
+		.magFilter = kFilterLinear,
+		.wrapS = kWrapModeRepeat,
+		.wrapT = kWrapModeRepeat,			
+		.anisoFactor = 1.0f,
+	});
+
+	for (int32_t tex = 0; tex < numTextures; ++tex)
+	{
+		texture_load(textureNames[tex], &(rgfx_textureLoadDesc) {
+			.texture = texArray,
+			.slice = tex,
+		});
+	}
+	return texArray;
+#endif
+	return (rgfx_texture) { 0 };
+}
+
+rgfx_buffer rgfx_getTransforms()
+{
+#if 0
+	return s_rendererData.cameraTransforms;
+#endif
+	return (rgfx_buffer) { 0 };
+}
+
+rgfx_buffer rgfx_getLightsBuffer()
+{
+#if 0
+	return s_rendererData.lights;
+#endif
+	return (rgfx_buffer) { 0 };
+}
+
+mat4x4 rgfx_getCameraViewMatrix(int32_t cam)
+{
+#if 0
+	assert(cam >= 0);
+	assert(cam < MAX_CAMERAS);
+
+	return s_rendererData.cameras[cam].viewMatrix;
+#endif
+	return mat4x4_identity();
+}
+
+mat4x4 rgfx_getCameraProjectionMatrix(int32_t cam)
+{
+#if 0
+	assert(cam >= 0);
+	assert(cam < MAX_CAMERAS);
+
+	return s_rendererData.cameras[cam].projectionMatrix;
+#endif
+	return mat4x4_identity();
+}
+
+mat4x4 rgfx_getCameraViewProjMatrix(int32_t cam)
+{
+#if 0
+	assert(cam >= 0);
+	assert(cam < MAX_CAMERAS);
+
+	return mat4x4_mul(s_rendererData.cameras[cam].projectionMatrix, s_rendererData.cameras[cam].viewMatrix);
+#endif
+	return mat4x4_identity();
+}
+
+/*
+void rgfx_addLight(vec4 position, vec4 color)
+{
+	int32_t idx = s_rendererData.lights.id - 1;
+	assert(idx >= 0);
+	glBindBuffer(GL_UNIFORM_BUFFER, s_rendererData.buffers[idx].name);
+	rgfx_light* mappedPtr = (rgfx_light*)glMapBufferRange(GL_UNIFORM_BUFFER, sizeof(rgfx_light) * s_rendererData.lightCount++, sizeof(rgfx_light), s_rendererData.buffers[idx].flags);
+
+	if (mappedPtr)
+	{
+		mappedPtr->position = position;
+		mappedPtr->color = color;
+		glUnmapBuffer(GL_UNIFORM_BUFFER);
+	}
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+*/
+
+void rgfx_removeAllMeshInstances()
+{
+	s_rendererData.numMeshInstances = 0;
+}
+
+void rgfx_beginDefaultPass(const rgfx_passAction* passAction, int width, int height)
+{
+#if 0
+	float r = passAction->colors[0].val[0];
+	float g = passAction->colors[0].val[1];
+	float b = passAction->colors[0].val[2];
+	float a = passAction->colors[0].val[3];
+
+	glClearColor(r, g, b, a);
+	glClearDepthf(passAction->depth.val);
+	GLbitfield clearMask = 0;
+	clearMask |= passAction->colors[0].action == kActionClear ? GL_COLOR_BUFFER_BIT : 0;
+	clearMask |= passAction->depth.action == kActionClear ? GL_DEPTH_BUFFER_BIT : 0;
+	if (clearMask)
+	{
+		glClear(clearMask);
+	}
+	glViewport(0, 0, width, height);
+	s_rendererData.currentPassInfo.frameBufferId = 0;
+	s_rendererData.currentPassInfo.width = width;
+	s_rendererData.currentPassInfo.height = height;
+	s_rendererData.currentPassInfo.flags = 0;
+#endif
+}
+
+void rgfx_beginPass(rgfx_pass pass, const rgfx_passAction* passAction)
+{
+#if 0
+	int32_t passIdx = pass.id - 1;
+	assert(passIdx >= 0);
+	rgfx_passInfo* passInfo = &s_rendererData.passes[passIdx];
+	GLuint frameBufferId = passInfo->frameBufferId;
+	int32_t width = passInfo->width;
+	int32_t height = passInfo->height;
+	rgfx_passFlags flags = passInfo->flags;
+
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufferId);
+#ifdef _DEBUG
+	GLuint status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+	assert(status == GL_FRAMEBUFFER_COMPLETE); //, "Framebuffer Incomplete\n");
+#endif
+
+	float r = passAction->colors[0].val[0];
+	float g = passAction->colors[0].val[1];
+	float b = passAction->colors[0].val[2];
+	float a = passAction->colors[0].val[3];
+	glClearColor(r, g, b, a);
+	glClearDepthf(passAction->depth.val);
+
+	GLbitfield clearMask = 0;
+	clearMask |= passAction->colors[0].action == kActionClear ? GL_COLOR_BUFFER_BIT : 0;
+	clearMask |= passAction->depth.action == kActionClear ? GL_DEPTH_BUFFER_BIT : 0;
+	if (clearMask)
+	{
+		glClear(clearMask);
+	}
+	/*
+		if (flags & kPFNeedsResolve)
+			glEnable(GL_MULTISAMPLE);
+		else
+			glDisable(GL_MULTISAMPLE);
+	*/
+	glViewport(0, 0, width, height);
+	glScissor(0, 0, width, height);
+	s_rendererData.currentPassInfo.frameBufferId = frameBufferId;
+	s_rendererData.currentPassInfo.width = width;
+	s_rendererData.currentPassInfo.height = height;
+	s_rendererData.currentPassInfo.flags = flags;
+#endif
+}
+
+void rgfx_endPass()
+{
+#if 0
+	if (s_rendererData.currentPassInfo.frameBufferId > 0 && s_rendererData.currentPassInfo.flags & kPFNeedsResolve)
+	{
+		GLuint frameBufferId = s_rendererData.currentPassInfo.frameBufferId;
+		int32_t width = s_rendererData.currentPassInfo.width;
+		int32_t height = s_rendererData.currentPassInfo.height;
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBufferId);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	}
+#endif
+}
+
+void rgfx_bindPipeline(rgfx_pipeline pipeline)
+{
+#if 0
+	int32_t pipeIdx = pipeline.id - 1;
+	assert(pipeIdx >= 0);
+#ifdef USE_SEPARATE_SHADERS_OBJECTS
+	glBindProgramPipeline(s_rendererData.pipelines[pipeIdx].name);
+#else
+	glUseProgram(s_rendererData.pipelines[pipeIdx].name);
+#endif
+#endif
+}
+
+uint32_t rgfx_getPipelineProgram(rgfx_pipeline pipeline, rgfx_shaderType type)
+{
+#if 0
+	int32_t pipeIdx = pipeline.id - 1;
+	assert(pipeIdx >= 0);
+	switch (type)
+	{
+	case kVertexShader:
+		return s_rendererData.pipelines[pipeIdx].vertexProgramName;
+	case kFragmentShader:
+		return s_rendererData.pipelines[pipeIdx].fragmentProgramName;
+	default:
+		assert(0);
+	}
+#endif
+	return 0;
+}
+
+
+mat4x4* rgfx_mapModelMatricesBuffer(int32_t start, int32_t end)
+{
+	//	int32_t idx = s_rendererData.instanceMatrices.id;
+	//	glBindBuffer(GL_UNIFORM_BUFFER, s_rendererData.buffers[idx].name);
+	return NULL; //(mat4x4 *)glMapBufferRange(GL_UNIFORM_BUFFER, start * sizeof(mat4x4), end * sizeof(mat4x4), s_rendererData.buffers[idx].flags);
+}
+
+void rgfx_unmapModelMatricesBuffer()
+{
+	//	glUnmapBuffer(GL_UNIFORM_BUFFER);
+	//	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+#if 0
+typedef int cmp_t(const void*, const void*);
+void insertion_sort(const void *arr, size_t n, size_t elementSize, cmp_t ^cmp_b)
+{
+	const void* key;
+	int i, j;
+	for (i = 1; i < n; i++)
+	{
+		key = (const void*)((uint8_t*)arr + i * elementSize);
+		void* keyCpy = alloca(elementSize);
+		memcpy(keyCpy, key, sizeof(elementSize));
+		j = i - 1;
+		while (j >= 0 && cmp_b((const void*)((uint8_t*)arr + j * elementSize), keyCpy) > 0)
+		{
+			const void* elemJ = (const void*)((uint8_t*)arr + j * elementSize);
+			void* elemJ1 = (void*)((uint8_t*)arr + (j+1) * elementSize);
+//			arr[j + 1] = arr[j];
+			memcpy(elemJ1, elemJ, elementSize);
+			j = j - 1;
+		}
+//		arr[j + 1] = key;
+		void* elemJ1 = (void*)((uint8_t*)arr + (j+1) * elementSize);
+		memcpy(elemJ1, keyCpy, elementSize);
+	}
+}
+#endif
+
+void rgfx_renderFullscreenQuad(rgfx_texture tex)
+{
+#if 0
+//	glCullFace(GL_BACK);
+//	glDepthMask(GL_TRUE);
+//	glDisable(GL_CULL_FACE);
+	glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+#ifdef RE_PLATFORM_WIN64
+	glEnable(GL_SAMPLE_ALPHA_TO_ONE);
+#endif
+//	glEnable(GL_BLEND);
+
+	rgfx_bindVertexBuffer((rgfx_vertexBuffer) { .id = 1 });
+	rgfx_bindPipeline(s_rendererData.fsQuadPipeline);
+	rgfx_bindTexture(0, tex);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	rgfx_unbindVertexBuffer();
+//	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+//	glEnable(GL_CULL_FACE);
+//	glDisable(GL_BLEND);
+#ifdef RE_PLATFORM_WIN64
+	glDisable(GL_SAMPLE_ALPHA_TO_ONE);
+#endif
+	glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+#endif
+}
+
+void checkForCompileErrors(GLuint shader, const char *shaderName) //, GLint shaderType)
+{
+#if 0
+	int32_t error = 0;
+
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &error);
+	if (!error)
+	{
+		GLint infoLen = 0;
+		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+		if (infoLen > 0)
+		{
+			infoLen += 128;
+			char* infoLog = (char*)malloc(sizeof(char) * infoLen);
+			memset(infoLog, 0, infoLen);
+			int32_t readLen = 0;
+			glGetShaderInfoLog(shader, infoLen, &readLen, infoLog);
+			GLint shaderType = 0;
+			glGetShaderiv(shader, GL_SHADER_TYPE, &shaderType);
+			if (shaderType == GL_VERTEX_SHADER)
+			{
+				rsys_print("Error: compiling vertexShader %s: %s\n", shaderName, infoLog);
+			}
+			else if (shaderType == GL_FRAGMENT_SHADER)
+			{
+				rsys_print("Error: compiling fragmentShader %s: %s\n", shaderName, infoLog);
+			}
+			else if (shaderType == GL_COMPUTE_SHADER)
+			{
+				rsys_print("Error: compiling computeShader\n%s\n", infoLog);
+			}
+			else
+			{
+				rsys_print("Error: unknown shader type\n%s\n", infoLog);
+			}
+			free(infoLog);
+		}
+	}
+#endif
+}
+
+rgfx_shader rgfx_loadShader(const char* shaderName, const rgfx_shaderType type, rgfx_materialFlags flags)
+{
+#if 0
+	assert(s_rendererData.numShaders < MAX_SHADERS);
+	assert(shaderName != NULL);
+
+	char nameBuffer[1024];
+	sprintf(nameBuffer, "%s_%d", shaderName, flags);
+	uint32_t hashedShaderName = hashString(nameBuffer);
+	int32_t shaderIdx = rsys_hm_find(&s_rendererData.shaderLookup, hashedShaderName);
+	if (shaderIdx < 0)
+	{
+		rsys_file file = file_open(shaderName, "rt");
+		if (!file_is_open(file))
+		{
+			printf("Error: Unable to open file %s\n", shaderName);
+			exit(1);
+		}
+		size_t length = file_length(file);
+		char* vs = (char*)malloc(length + 1);
+		memset(vs, 0, length + 1);
+		file_read(vs, length, file);
+		file_close(file);
+
+#ifdef RE_PLATFORM_WIN64
+		static const char* programVersion = "#version 460 core\n";
+#else
+		static const char* programVersion = "#version 320 es\n";
+#endif
+		const char* compileStrings[20] = { 0 }; // programVersion, NULL, NULL, NULL};
+		int32_t compileStringCount;
+		GLenum shaderType;
+
+		int32_t stringIndex = 0;
+		compileStrings[stringIndex++] = programVersion;
+		uint32_t remainingFlags = flags;
+		for (int32_t bitIdx = 0; bitIdx < 16 - 1 && remainingFlags; ++bitIdx)
+		{
+			uint16_t bit = (1 << bitIdx) & flags;
+			switch (bit)
+			{
+			case kMFDiffuseMap:
+				compileStrings[stringIndex++] = "#define USE_DIFFUSEMAP\n";
+				break;
+			case kMFNormalMap:
+				compileStrings[stringIndex++] = "#define USE_NORMALMAP\n";
+				break;
+			case kMFMetallicMap:
+				compileStrings[stringIndex++] = "#define USE_METALLICMAP\n";
+				break;
+			case kMFRoughnessMap:
+				compileStrings[stringIndex++] = "#define USE_ROUGHNESSMAP\n";
+				break;
+			case kMFEmissiveMap:
+				compileStrings[stringIndex++] = "#define USE_EMISSIVEMAP\n";
+				break;
+			case kMFSkinned:
+				compileStrings[stringIndex++] = "#define USE_SKINNING\n";
+				break;
+			case kMFInstancedMaps:
+				compileStrings[stringIndex++] = "#define USE_TEXTURE_ARRAY\n";
+				break;
+			}
+			remainingFlags >>= 1;
+		}
+
+		switch (type)
+		{
+		case kVertexShader:
+			shaderType = GL_VERTEX_SHADER;
+			compileStrings[stringIndex++] = (s_rendererData.extensions.multi_view) ? "#define DISABLE_MULTIVIEW 0\n" : "#define DISABLE_MULTIVIEW 1\n";
+			compileStrings[stringIndex++] = vs;
+			compileStringCount = stringIndex;
+			break;
+		case kFragmentShader:
+			shaderType = GL_FRAGMENT_SHADER;
+			compileStrings[stringIndex++] = vs;
+			compileStringCount = stringIndex;
+			break;
+		default:
+			shaderType = GL_INVALID_ENUM;
+			compileStringCount = 0;
+			assert(0);
+		}
+
+#ifdef USE_SEPARATE_SHADERS_OBJECTS
+		//	GLuint glShaderName = glCreateShaderProgramv(shaderType, compileStringCount, compileStrings);
+		GLuint glShaderName = glCreateShader(shaderType);
+		glShaderSource(glShaderName, compileStringCount, compileStrings, NULL);
+		glCompileShader(glShaderName);
+		checkForCompileErrors(glShaderName, shaderName);
+		GLuint glShaderProgramName = glCreateProgram();
+
+		glAttachShader(glShaderProgramName, glShaderName);
+		glProgramParameteri(glShaderProgramName, GL_PROGRAM_SEPARABLE, GL_TRUE);
+		glLinkProgram(glShaderProgramName);
+#else
+		GLuint glShaderProgramName = glCreateShader(shaderType);
+		glShaderSource(glShaderProgramName, compileStringCount, compileStrings, NULL);
+		glCompileShader(glShaderProgramName);
+		checkForCompileErrors(glShaderProgramName);
+#endif
+		free(vs);
+
+		rsys_hm_insert(&s_rendererData.shaderLookup, hashedShaderName, s_rendererData.numShaders);
+
+		shaderIdx = s_rendererData.numShaders++;
+		assert(shaderIdx < MAX_SHADERS);
+		s_rendererData.shaders[shaderIdx].name = glShaderProgramName;
+		s_rendererData.shaders[shaderIdx].type = shaderType;
+	}
+
+	return (rgfx_shader) { .id = shaderIdx + 1 };
+#endif
+	return (rgfx_shader) { 0 };
+}
+
+#pragma GCC diagnostic pop
+
+void createVkInstance()
+{
+	uint32_t glfwExtensionCount = 0;
+	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+	uint32_t extensionCount = glfwExtensionCount + (kEnableValidationLayers ? 1 : 0);
+	const char** extensions = (const char**)alloca(sizeof(const char*) * extensionCount);
+	for (uint32_t i = 0; i < glfwExtensionCount; ++i)
+	{
+		extensions[i] = glfwExtensions[i];
+	}
+
+	if (kEnableValidationLayers)
+	{
+		extensions[glfwExtensionCount] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
+	}
+
+	uint32_t layerCount = 0;
+	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
+
+	VkLayerProperties* availableLayers = (VkLayerProperties*)alloca(sizeof(VkLayerProperties) * layerCount);
+	vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
+	bool validationLayersFound = false;
+	for (uint32_t i = 0; i < layerCount; ++i)
+	{
+		if (!strcmp(availableLayers[i].layerName, validationLayers[0]))
+		{
+			validationLayersFound = true;
+			break;
+		}
+	}
+
+	bool enableValidationLayers = kEnableValidationLayers && validationLayersFound;
+
+	VkResult res = vkCreateInstance(&(VkInstanceCreateInfo) {
+		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+//		.pNext = NULL,
+//		.flags = 0,
+		.pApplicationInfo = &(VkApplicationInfo) {
+			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+//			.pNext = NULL,
+			.pApplicationName = "VulkanL",
+			.applicationVersion = VK_MAKE_VERSION(0, 1, 0),
+			.pEngineName = "RealityEngine",
+			.engineVersion = VK_MAKE_VERSION(0, 1, 0),
+			.apiVersion = VK_API_VERSION_1_0,
+		},
+		.enabledExtensionCount = extensionCount,
+		.ppEnabledExtensionNames = extensions,
+		.enabledLayerCount = enableValidationLayers ? sizeof(validationLayers) / sizeof(const char*) : 0,
+		.ppEnabledLayerNames = enableValidationLayers ? validationLayers : NULL
+	}, NULL, &s_device.vkInstance);
+
+	if (res == VK_ERROR_INCOMPATIBLE_DRIVER)
+	{
+		rsys_print("cannot find a compatible Vulkan ICD\n");
+		exit(-1);
+	}
+	else if (res)
+	{
+		rsys_print("unknown error\n");
+		exit(-1);
+	}
+
+	if (kEnableValidationLayers)
+	{
+		VkDebugReportCallbackCreateInfoEXT createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+		createInfo.pfnCallback = (PFN_vkDebugReportCallbackEXT)debugCallback;
+		createInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
+
+		PFN_vkCreateDebugReportCallbackEXT CreateDebugReportCallback = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(s_device.vkInstance, "vkCreateDebugReportCallbackEXT");
+
+		VkResult err = CreateDebugReportCallback(s_device.vkInstance, &(VkDebugReportCallbackCreateInfoEXT) {
+			.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
+			.pfnCallback = (PFN_vkDebugReportCallbackEXT)debugCallback,
+			.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT
+		}, NULL, &s_device.vkDebugReportCallback);
+
+		if (err != VK_SUCCESS)
+		{
+			rsys_print("failed to create debug callback\n");
+			exit(1);
+		}
+		else
+		{
+			rsys_print("created debug callback\n");
+		}
+	}
+	else
+	{
+		rsys_print("skipped creating debug callback\n");
+	}
+}
+
+void createSurface(GLFWwindow* window)
+{
+	VkResult err = glfwCreateWindowSurface(s_device.vkInstance, window, NULL, &s_device.vkSurface);
+	if (err)
+	{
+		rsys_print("window surface creation failed.\n");
+		exit(-1);
+	}
+}
+
+void createDevice(void) //ScopeStack& scope)
+{
+	uint32_t physicalDeviceCount = 0;
+	vkEnumeratePhysicalDevices(s_device.vkInstance, &physicalDeviceCount, NULL);
+
+	s_device.vkPhysicalDeviceCount = physicalDeviceCount;
+	s_device.vkPhysicalDevices = (VkPhysicalDevice*)malloc(sizeof(VkPhysicalDevice) * physicalDeviceCount);
+	vkEnumeratePhysicalDevices(s_device.vkInstance, &s_device.vkPhysicalDeviceCount, s_device.vkPhysicalDevices);
+	s_device.vkPhysicalDeviceProperties = (VkPhysicalDeviceProperties*)malloc(sizeof(VkPhysicalDeviceProperties) * physicalDeviceCount);
+	s_device.vkPhysicalDeviceMemoryProperties = (VkPhysicalDeviceMemoryProperties*)malloc(sizeof(VkPhysicalDeviceMemoryProperties) * physicalDeviceCount);
+	s_device.vkPhysicalDeviceFeatures = (VkPhysicalDeviceFeatures*)malloc(sizeof(VkPhysicalDeviceFeatures) * physicalDeviceCount);
+	for (uint32_t i = 0; i < physicalDeviceCount; ++i)
+	{
+		vkGetPhysicalDeviceProperties(s_device.vkPhysicalDevices[i], &s_device.vkPhysicalDeviceProperties[i]);
+		vkGetPhysicalDeviceMemoryProperties(s_device.vkPhysicalDevices[i], &s_device.vkPhysicalDeviceMemoryProperties[i]);
+		vkGetPhysicalDeviceFeatures(s_device.vkPhysicalDevices[i], &s_device.vkPhysicalDeviceFeatures[i]);
+	}
+
+#if 0 //def WIN32
+	SYSTEM_POWER_STATUS powerStatus = {};
+	if (GetSystemPowerStatus(&powerStatus))
+	{
+		if (powerStatus.ACLineStatus == 0 && m_vkPhysicalDeviceCount > 1 && m_vkPhysicalDeviceProperties[1].deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+			m_selectedDevice = 1;				// Automatically select Integrated GPU if available when on battery power. 
+	}
+#endif
+#if defined(FORCE_NVIDIA)
+	m_selectedDevice = 0;
+#elif defined(FORCE_INTEL)
+	m_selectedDevice = 1;
+#endif
+
+	rsys_print("Selected Device: %s\n", s_device.vkPhysicalDeviceProperties[s_device.selectedDevice].deviceName);
+
+	vkGetPhysicalDeviceQueueFamilyProperties(s_device.vkPhysicalDevices[s_device.selectedDevice], &s_device.vkQueueFamilyPropertiesCount, NULL);
+	s_device.vkQueueFamilyProperties = (VkQueueFamilyProperties*)malloc(sizeof(VkQueueFamilyProperties) * s_device.vkQueueFamilyPropertiesCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(s_device.vkPhysicalDevices[s_device.selectedDevice], &s_device.vkQueueFamilyPropertiesCount, s_device.vkQueueFamilyProperties);
+
+	bool foundGraphicsQueueFamily = false;
+	bool foundPresentQueueFamily = false;
+
+	for (uint32_t i = 0; i < s_device.vkQueueFamilyPropertiesCount; i++)
+	{
+		VkBool32 presentSupport = false;
+		vkGetPhysicalDeviceSurfaceSupportKHR(s_device.vkPhysicalDevices[s_device.selectedDevice], i, s_device.vkSurface, &presentSupport);
+
+		if (s_device.vkQueueFamilyProperties[i].queueCount > 0 && s_device.vkQueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+		{
+			s_device.vkGraphicsQueueFamilyIndex = i;
+			foundGraphicsQueueFamily = true;
+
+			if (presentSupport)
+			{
+				s_device.vkPresentQueueFamilyIndex = i;
+				foundPresentQueueFamily = true;
+				break;
+			}
+		}
+
+		if (!foundPresentQueueFamily && presentSupport)
+		{
+			s_device.vkPresentQueueFamilyIndex = i;
+			foundPresentQueueFamily = true;
+		}
+	}
+
+	if (foundGraphicsQueueFamily)
+	{
+		rsys_print("queue family #%d supports graphics\n", s_device.vkGraphicsQueueFamilyIndex);
+
+		if (foundPresentQueueFamily)
+		{
+			rsys_print("queue family #%d supports presentation\n", s_device.vkPresentQueueFamilyIndex);
+		}
+		else
+		{
+			rsys_print("could not find a valid queue family with present support\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+	else
+	{
+		rsys_print("could not find a valid queue family with graphics support\n");
+		exit(EXIT_FAILURE);
+	}
+
+	float queuePriority = 1.0f;
+
+	VkDeviceQueueCreateInfo queueCreateInfo[2] = {
+		{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+//			.pNext = NULL,
+//			.flags = 0,
+			.queueFamilyIndex = s_device.vkGraphicsQueueFamilyIndex,
+			.queueCount = 1,
+			.pQueuePriorities = &queuePriority,
+		},
+		{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+//			.pNext = NULL,
+//			.flags = 0,
+			.queueFamilyIndex = s_device.vkPresentQueueFamilyIndex,
+			.queueCount = 1,
+			.pQueuePriorities = &queuePriority,
+		}
+	};
+	const char* deviceExtensions = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+	VkResult res = vkCreateDevice(s_device.vkPhysicalDevices[s_device.selectedDevice], &(VkDeviceCreateInfo) {
+		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+//		.pNext = NULL,
+//		.flags = 0,
+		.queueCreateInfoCount = s_device.vkGraphicsQueueFamilyIndex != s_device.vkPresentQueueFamilyIndex ? 2 : 1,
+		.pQueueCreateInfos = queueCreateInfo,
+//		.enabledLayerCount = 0,
+//		.ppEnabledLayerNames = NULL,
+		.enabledExtensionCount = 1,
+		.ppEnabledExtensionNames = &deviceExtensions,
+		.pEnabledFeatures = &s_device.vkPhysicalDeviceFeatures[s_device.selectedDevice],
+	}, NULL, &s_device.vkDevice);
+// CLR - Should check for errors here.
+	vkGetDeviceQueue(s_device.vkDevice, s_device.vkGraphicsQueueFamilyIndex, 0, &s_device.vkGraphicsQueue);
+	vkGetDeviceQueue(s_device.vkDevice, s_device.vkPresentQueueFamilyIndex, 0, &s_device.vkPresentQueue);
+	rsys_print("acquired graphics and presentation queues\n");
+}
+
+void createSemaphores()
+{
+	VkSemaphoreCreateInfo createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+	if (vkCreateSemaphore(s_device.vkDevice, &createInfo, NULL, &s_device.vkImageAvailableSemaphore) != VK_SUCCESS ||
+		vkCreateSemaphore(s_device.vkDevice, &createInfo, NULL, &s_device.vkRenderingFinishedSemaphore) != VK_SUCCESS)
+	{
+		rsys_print("failed to create semaphores\n");
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		rsys_print("created semaphores\n");
+	}
+}
+
+void createSwapChain()
+{
+	VkSurfaceCapabilitiesKHR surfaceCapabilities;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(s_device.vkPhysicalDevices[s_device.selectedDevice], s_device.vkSurface, &surfaceCapabilities);
+
+	uint32_t supportedSurfaceFormatsCount = 0;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(s_device.vkPhysicalDevices[s_device.selectedDevice], s_device.vkSurface, &supportedSurfaceFormatsCount, NULL);
+	VkSurfaceFormatKHR* supportedSurfaceFormats = (VkSurfaceFormatKHR*)alloca(sizeof(VkSurfaceCapabilitiesKHR) * supportedSurfaceFormatsCount);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(s_device.vkPhysicalDevices[s_device.selectedDevice], s_device.vkSurface, &supportedSurfaceFormatsCount, supportedSurfaceFormats);
+
+	s_device.vkSwapChainExtent = surfaceCapabilities.currentExtent;
+
+	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	swapchainCreateInfo.pNext = NULL;
+	swapchainCreateInfo.surface = s_device.vkSurface;
+	swapchainCreateInfo.minImageCount = surfaceCapabilities.minImageCount;
+	swapchainCreateInfo.imageFormat = supportedSurfaceFormats[0].format;
+	swapchainCreateInfo.imageExtent.width = s_device.vkSwapChainExtent.width;
+	swapchainCreateInfo.imageExtent.height = s_device.vkSwapChainExtent.height;
+	swapchainCreateInfo.preTransform = surfaceCapabilities.currentTransform;;
+	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	swapchainCreateInfo.imageArrayLayers = 1;
+	swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
+	swapchainCreateInfo.clipped = true;
+	swapchainCreateInfo.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	swapchainCreateInfo.queueFamilyIndexCount = 0;
+	swapchainCreateInfo.pQueueFamilyIndices = NULL;
+
+	uint32_t queueFamilyIndices[2] =
+	{
+		(uint32_t)s_device.vkGraphicsQueueFamilyIndex,
+		(uint32_t)s_device.vkPresentQueueFamilyIndex
+	};
+
+	if (s_device.vkGraphicsQueueFamilyIndex != s_device.vkPresentQueueFamilyIndex)
+	{
+		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		swapchainCreateInfo.queueFamilyIndexCount = 2;
+		swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
+	}
+
+	s_device.vkSwapChainFormat = supportedSurfaceFormats[0].format;
+
+	VkResult res = vkCreateSwapchainKHR(s_device.vkDevice, &swapchainCreateInfo, NULL, &s_device.vkSwapChain);
+
+	vkGetSwapchainImagesKHR(s_device.vkDevice, s_device.vkSwapChain, &s_device.vkSwapChainImageCount, NULL);
+	VkImage* swapChainImages = (VkImage*)alloca(sizeof(VkImage) * s_device.vkSwapChainImageCount);
+	if (vkGetSwapchainImagesKHR(s_device.vkDevice, s_device.vkSwapChain, &s_device.vkSwapChainImageCount, swapChainImages) != VK_SUCCESS)
+	{
+		rsys_print("failed to acquire swap chain images\n");
+		exit(EXIT_FAILURE);
+	}
+/*
+	if (m_swapChainRenderTargets == nullptr && scope != nullptr)
+	{
+		m_swapChainRenderTargets = static_cast<RenderTarget**>(scope->allocate(sizeof(RenderTarget) * m_vkSwapChainImageCount));
+		for (uint32_t i = 0; i < m_vkSwapChainImageCount; ++i)
+			m_swapChainRenderTargets[i] = scope->newObject<RenderTarget>(*this, swapChainImages[i], m_vkSwapChainFormat, VK_SAMPLE_COUNT_1_BIT);
+		m_vkSwapChainFramebuffers = static_cast<VkFramebuffer*>(scope->allocate(sizeof(VkFramebuffer) * m_vkSwapChainImageCount));
+		m_vkCommandBuffers = static_cast<VkCommandBuffer*>(scope->allocate(sizeof(VkCommandBuffer) * m_vkSwapChainImageCount));
+	}
+	else
+	{
+		for (uint32_t i = 0; i < m_vkSwapChainImageCount; ++i)
+			m_swapChainRenderTargets[i]->recreate(swapChainImages[i]);
+	}
+*/
+}
