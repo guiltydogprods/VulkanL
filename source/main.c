@@ -48,6 +48,7 @@ int main(int argc, char* argv[])
 			.height = startUpScreenHeight,
 			.eyeWidth = 0,
 			.eyeHeight = 0,
+            .glfwWindow = window,
 		});
 
 #if defined(WIN32)

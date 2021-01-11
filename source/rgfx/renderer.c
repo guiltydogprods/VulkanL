@@ -13,12 +13,13 @@
 #include "math/vec4.h"
 //#include "stb/stretchy_buffer.h"
 //#include "hash.h"
-#include <threads.h>
+//#include <threads.h>
 
 #ifdef VRSYSTEM_OCULUS
 #include "OVR_CAPI_GL.h"
 #endif
 
+/*
 #ifndef RE_PLATFORM_WIN64
 #include "VrApi.h"
 #include "VrApi_Helpers.h"
@@ -27,8 +28,12 @@
 
 //extern VrApi vrapi;
 #endif
+*/
 
 //#include "vrsystem.h"
+void createVkInstance();
+void createSurface(GLFWwindow* window);
+void createDevice();
 
 #define USE_SEPARATE_SHADERS_OBJECTS
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -136,6 +141,9 @@ void openglCallbackFunction(GLenum source, GLenum type, GLuint id, GLenum severi
 
 void rgfx_initialize(const rgfx_initParams* params)
 {
+    createVkInstance();
+    createSurface(params->glfwWindow);
+    createDevice();
 #if 0
 	memset(&s_rendererData, 0, sizeof(rgfx_rendererData));
 	rgfx_iniializeScene();

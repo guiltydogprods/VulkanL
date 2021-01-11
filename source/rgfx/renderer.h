@@ -15,6 +15,8 @@
 //#include "vrsystem.h"
 #endif
 
+#define STATIC_ARRAY_SIZE(_a) (sizeof(_a) / sizeof(_a[0]))
+
 #define USE_SEPARATE_SHADERS_OBJECTS
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
@@ -412,6 +414,7 @@ typedef struct rgfx_initParams
 	int32_t height;
 	int32_t eyeWidth;
 	int32_t eyeHeight;
+    GLFWwindow* glfwWindow;
 	rgfx_extensions extensions;
 }rgfx_initParams;
 

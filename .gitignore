@@ -1,4 +1,5 @@
 .vs/
+.DS_STORE
 bin/
 obj/
 *.sln
@@ -11,6 +12,8 @@ obj/
 *.ipch
 *.opendb
 *.VC.db
+*.xcodeproj/
+*.xcworkspace/
 Debug/
 Release/
 Framework/

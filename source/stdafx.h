@@ -21,6 +21,9 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
 //#include <string>
 #include "system.h"
 //#include "resource.h"

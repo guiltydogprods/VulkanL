@@ -84,6 +84,7 @@ void rgfx_drawDebugLines(int32_t eye, bool bHmdMounted)
 //	glDisable(GL_FRAMEBUFFER_SRGB);
 	rgfx_bindPipeline(s_debugRenderPipeline);
 
+#ifndef RE_PLATFORM_MACOS
 	GLuint program = rgfx_getPipelineProgram(s_debugRenderPipeline, kVertexShader);
 	if (g_viewIdLoc >= 0)  // NOTE: will not be present when multiview path is enabled.
 	{
@@ -93,7 +94,8 @@ void rgfx_drawDebugLines(int32_t eye, bool bHmdMounted)
 	rgfx_bindBuffer(1, rgfx_getTransforms());
 
 	glDrawArrays(GL_LINES, 0, numLines * 2);
-	if (!bHmdMounted || bHmdMounted && eye == 1) {
+#endif
+    if (!bHmdMounted || bHmdMounted && eye == 1) {
 		sb_free(s_debugLineArray);
 		s_debugLineArray = NULL;
 	}

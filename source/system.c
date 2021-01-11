@@ -96,6 +96,8 @@ void rsys_print(const char* fmt, ...)
 	}
 	else
 		fputs(debugString, stdout);
+#elif RE_PLATFORM_MACOS
+    fputs(debugString, stdout);
 #else // RE_PLATFORM_ANDROID
 	__android_log_print(ANDROID_LOG_DEBUG, "RealityEngine", "%s", debugString);
 #endif
