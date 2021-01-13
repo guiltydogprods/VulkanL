@@ -28,8 +28,8 @@ filter "action:xcode*"
    linkoptions { "-framework Cocoa -framework IOKit -framework CoreFoundation -framework IOSurface -framework Metal -framework QuartzCore" }
    sysincludedirs { "external/glfw-3.3/include", "../MoltenVK/Package/Release/MoltenVK/include", "external" }
    includedirs { ".", "source", "external/glfw-3.3.2/include", "external/stb" } --, "extenral/threads" }
-   libdirs { "external/glfw-3.3/lib-macos", "../MoltenVK/Package/Release/MoltenVK/MoltenVK.xcframework/macos-arm64_x86_64" }   -- there isn't a vs2017 build of glfw yet, but the 2015 one seems to work
-   links { "c++", "glfw3", "MoltenVK" } --, "opengl32", "glew32" }
+   libdirs { "external/glfw-3.3/lib-macos", "../MoltenVK/Package/Release/MoltenVK/MoltenVK.xcframework/macos-arm64_x86_64" }
+   links { "c++", "glfw3", "MoltenVK" }
    architecture "ARM64"  
    vectorextensions "NEON"
    defines { "ARM64", "RE_PLATFORM_MACOS" }

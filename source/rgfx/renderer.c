@@ -34,6 +34,9 @@
 void createVkInstance();
 void createSurface(GLFWwindow* window);
 void createDevice();
+void createSemaphores();
+void createSwapChain();
+void createCommandPool();
 
 #define USE_SEPARATE_SHADERS_OBJECTS
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -144,6 +147,11 @@ void rgfx_initialize(const rgfx_initParams* params)
     createVkInstance();
     createSurface(params->glfwWindow);
     createDevice();
+    
+    createSemaphores();
+    createSwapChain();
+//    createCommandPool();
+
 #if 0
 	memset(&s_rendererData, 0, sizeof(rgfx_rendererData));
 	rgfx_iniializeScene();
@@ -976,7 +984,7 @@ void createVkInstance()
 	uint32_t glfwExtensionCount = 0;
 	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-	uint32_t extensionCount = glfwExtensionCount + (kEnableValidationLayers ? 1 : 0);
+	uint32_t extensionCount = glfwExtensionCount + (kEnableValidationLayers ? 3 : 0);
 	const char** extensions = (const char**)alloca(sizeof(const char*) * extensionCount);
 	for (uint32_t i = 0; i < glfwExtensionCount; ++i)
 	{
@@ -985,8 +993,10 @@ void createVkInstance()
 
 	if (kEnableValidationLayers)
 	{
-		extensions[glfwExtensionCount] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
+		extensions[glfwExtensionCount++] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
 	}
+    extensions[glfwExtensionCount++] = VK_KHR_SURFACE_EXTENSION_NAME;
+    extensions[glfwExtensionCount++] = "VK_MVK_macos_surface";
 
 	uint32_t layerCount = 0;
 	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
@@ -1068,6 +1078,12 @@ void createVkInstance()
 
 void createSurface(GLFWwindow* window)
 {
+
+    int vulkanSupported = glfwVulkanSupported();
+    if (!vulkanSupported)
+    {
+        exit(1);
+    }
 	VkResult err = glfwCreateWindowSurface(s_device.vkInstance, window, NULL, &s_device.vkSurface);
 	if (err)
 	{
@@ -1203,8 +1219,10 @@ void createDevice(void) //ScopeStack& scope)
 
 void createSemaphores()
 {
-	VkSemaphoreCreateInfo createInfo = {};
-	createInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	VkSemaphoreCreateInfo createInfo = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+//	createInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
 	if (vkCreateSemaphore(s_device.vkDevice, &createInfo, NULL, &s_device.vkImageAvailableSemaphore) != VK_SUCCESS ||
 		vkCreateSemaphore(s_device.vkDevice, &createInfo, NULL, &s_device.vkRenderingFinishedSemaphore) != VK_SUCCESS)
@@ -1230,7 +1248,27 @@ void createSwapChain()
 
 	s_device.vkSwapChainExtent = surfaceCapabilities.currentExtent;
 
-	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+	VkSwapchainCreateInfoKHR swapchainCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+//        .pNext = NULL,
+        .surface = s_device.vkSurface,
+        .minImageCount = surfaceCapabilities.minImageCount,
+        .imageFormat = supportedSurfaceFormats[0].format,
+        .imageExtent.width = s_device.vkSwapChainExtent.width,
+        .imageExtent.height = s_device.vkSwapChainExtent.height,
+        .preTransform = surfaceCapabilities.currentTransform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .imageArrayLayers = 1,
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR,
+//        .oldSwapchain = VK_NULL_HANDLE,
+        .clipped = true,
+        .imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+//        .queueFamilyIndexCount = 0,
+//        .pQueueFamilyIndices = NULL,
+    };
+/*
 	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 	swapchainCreateInfo.pNext = NULL;
 	swapchainCreateInfo.surface = s_device.vkSurface;
@@ -1249,7 +1287,7 @@ void createSwapChain()
 	swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	swapchainCreateInfo.queueFamilyIndexCount = 0;
 	swapchainCreateInfo.pQueueFamilyIndices = NULL;
-
+*/
 	uint32_t queueFamilyIndices[2] =
 	{
 		(uint32_t)s_device.vkGraphicsQueueFamilyIndex,
