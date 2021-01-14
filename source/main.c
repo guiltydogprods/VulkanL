@@ -30,6 +30,13 @@ int main(int argc, char* argv[])
 		rsys_print("glfwInit failed.\n");
 		exit(EXIT_FAILURE);
 	}
+
+	if (!glfwVulkanSupported)
+	{
+		rsys_print("glfw could not fine Vulkan Loader or ICD.\n");
+		exit(1);
+	}
+
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 	const GLFWvidmode* primaryScreenMode = glfwGetVideoMode(glfwGetPrimaryMonitor());

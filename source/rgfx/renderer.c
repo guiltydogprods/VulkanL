@@ -984,7 +984,7 @@ void createVkInstance()
 	uint32_t glfwExtensionCount = 0;
 	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-	uint32_t extensionCount = glfwExtensionCount + (kEnableValidationLayers ? 3 : 0);
+	uint32_t extensionCount = glfwExtensionCount + (kEnableValidationLayers ? 1 : 0);
 	const char** extensions = (const char**)alloca(sizeof(const char*) * extensionCount);
 	for (uint32_t i = 0; i < glfwExtensionCount; ++i)
 	{
@@ -995,8 +995,6 @@ void createVkInstance()
 	{
 		extensions[glfwExtensionCount++] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
 	}
-    extensions[glfwExtensionCount++] = VK_KHR_SURFACE_EXTENSION_NAME;
-    extensions[glfwExtensionCount++] = "VK_MVK_macos_surface";
 
 	uint32_t layerCount = 0;
 	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
@@ -1078,12 +1076,6 @@ void createVkInstance()
 
 void createSurface(GLFWwindow* window)
 {
-
-    int vulkanSupported = glfwVulkanSupported();
-    if (!vulkanSupported)
-    {
-        exit(1);
-    }
 	VkResult err = glfwCreateWindowSurface(s_device.vkInstance, window, NULL, &s_device.vkSurface);
 	if (err)
 	{
