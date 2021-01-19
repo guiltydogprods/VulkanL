@@ -32,6 +32,18 @@
 #endif
 */
 
+#define NUM_X (3)
+#define NUM_Y (3)
+#define NUM_Z (3)
+#define NUM_DRAWS (NUM_X * NUM_Y * NUM_Z)
+
+#define ION_PI (3.14159265359f)
+#define ION_180_OVER_PI (180.0f / ION_PI)
+#define ION_PI_OVER_180 (ION_PI / 180.0f)
+
+#define DEGREES(x) ((x) * ION_180_OVER_PI)
+#define RADIANS(x) ((x) * ION_PI_OVER_180)
+
 //#include "vrsystem.h"
 void createVkInstance();
 void createSurface(GLFWwindow* window);
@@ -39,11 +51,21 @@ void createDevice();
 void createSemaphores();
 void createSwapChain();
 void createCommandPool();
+void createVertexBuffer();
+void createUniformBuffer();
 void createRenderPass();
 void createFramebuffers();
 void createGraphicsPipeline();
 void createDescriptorSet();
 void createCommandBuffers();
+
+VkShaderModule createShaderModule(const char *filename);
+VkBool32 getMemoryType(uint32_t typeBits, VkMemoryPropertyFlags  properties, uint32_t* typeIndex);
+
+VkCommandBuffer beginSingleUseCommandBuffer();
+void endSingleUseCommandBuffer(VkCommandBuffer commandBuffer);
+//void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageSubresourceRange& subresourceRange, VkImageLayout oldLayout, VkImageLayout newLayout);
+//void copyImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImage dstImage, uint32_t width, uint32_t height);
 
 #define USE_SEPARATE_SHADERS_OBJECTS
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -76,6 +98,13 @@ const bool kEnableValidationLayers = true;
 #endif
 
 const uint64_t  kDefaultFenceTimeout = 100000000000;
+
+typedef struct rapp_data
+{
+    mat4x4 worldMatrix;
+    mat4x4 viewMatrix;
+    mat4x4 projectionMatrix;
+}rapp_data;
 
 typedef struct rgfx_device_vk
 {
@@ -117,6 +146,10 @@ typedef struct rgfx_device_vk
     
     VkRenderPass                        vkRenderPass;
 
+    VkVertexInputBindingDescription     vkVertexBindingDescription;
+    uint32_t                            vkVertexAttributeDescriptionCount;
+    VkVertexInputAttributeDescription   *vkVertexAttributeDescriptions;
+
     VkDescriptorSetLayout               vkDescriptorSetLayout;
     VkPipelineLayout                    vkPipelineLayout;
     VkPipeline                          vkGraphicsPipeline;
@@ -141,6 +174,13 @@ typedef struct rgfx_device_vk
 
 }rgfx_device_vk;
 
+typedef struct Vertex
+{
+    float pos[3];
+    float color[3];
+    float texCoord[2];
+}Vertex;
+
 typedef struct UniformBufferData
 {
     mat4x4 transformationMatrix;
@@ -150,6 +190,7 @@ typedef struct UniformBufferData
 #pragma GCC diagnostic ignored "-Wnull-pointer-arithmetic"
 
 //static __attribute__((aligned(64))) rgfx_rendererData s_rendererData = {};
+static __attribute__((aligned(64))) rapp_data s_appData = {};
 static __attribute__((aligned(64))) rgfx_device_vk s_device = {};
 __attribute__((aligned(64))) rgfx_rendererData s_rendererData = {};
 
@@ -193,11 +234,41 @@ void rgfx_initialize(const rgfx_initParams* params)
     createSwapChain();
     createCommandPool();
 
+    createVertexBuffer();
+    createUniformBuffer();
+
     createRenderPass();
     createFramebuffers();
     createGraphicsPipeline();
     createDescriptorSet();
     createCommandBuffers();
+    float dt = 0.0f;
+    static float angle = 0.0f;
+    float sina = 1.5f * sinf(RADIANS(angle));
+    float cosa = 1.5f * cosf(RADIANS(angle));
+    float radius = 0.5f + (float)(NUM_Z - 1) / 2.0f;
+    vec4 eye = { sina * radius, 1.0f, cosa * radius, 1.0f };
+    vec4 at = { 0.0f, 1.0f, 0.0f, 1.0f };
+    vec4 up = { 0.0f, 1.0f, 0.0f, 0.0f };
+    s_appData.worldMatrix = mat4x4_lookAtWorld(eye, at, up);
+    s_appData.viewMatrix = mat4x4_orthoInverse(s_appData.worldMatrix);
+#ifndef DISABLE_CAMERA_SPIN
+    angle += 15.0f * dt;
+    if (angle >= 360.0f)
+        angle -= 360.0f;
+#endif
+    const float fov = RADIANS(90.0f);
+    const float aspectRatio = (float)1080 / (float)1920;
+    const float nearZ = 0.1f;
+    const float farZ = 100.0f;
+    const float focalLength = 1.0f / tanf(fov * 0.5f);
+
+    float left = -nearZ / focalLength;
+    float right = nearZ / focalLength;
+    float bottom = -aspectRatio * nearZ / focalLength;
+    float top = aspectRatio * nearZ / focalLength;
+
+    s_appData.projectionMatrix = mat4x4_frustum(left, right, bottom, top, nearZ, farZ);
 
 #if 0
 	memset(&s_rendererData, 0, sizeof(rgfx_rendererData));
@@ -1425,9 +1496,154 @@ void createCommandPool()
     }
 }
 
+void createVertexBuffer()
+{
+    Vertex vertices[] =
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
+        { { -1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+        { {  1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
+        { { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
+
+//        { { -2.0f, -1.0f, -1.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
+//        { { -2.0f, 1.0f, -1.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+//        { { 0.0f, 1.0f, -1.5f }, { 1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
+//        { { 0.0f, -1.0f, -1.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
+
+    };
+    uint32_t verticesSize = sizeof(vertices);
+
+    uint32_t indices[] = { 0, 1, 2, 0, 2, 3 }; //, 4, 5, 6, 4, 6, 7 };
+    uint32_t indicesSize = sizeof(indices);
+
+    VkMemoryAllocateInfo memAlloc = {};
+    memAlloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    VkMemoryRequirements memReqs;
+    void *data = NULL;
+
+    struct StagingBuffer
+    {
+        VkDeviceMemory    memory;
+        VkBuffer        buffer;
+    };
+
+    struct
+    {
+        struct StagingBuffer vertices;
+        struct StagingBuffer indices;
+    }stagingBuffers;
+
+    VkBufferCreateInfo vertexBufferInfo = {};
+    vertexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    vertexBufferInfo.size = verticesSize;
+    vertexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    vkCreateBuffer(s_device.vkDevice, &vertexBufferInfo, NULL, &stagingBuffers.vertices.buffer);
+
+    vkGetBufferMemoryRequirements(s_device.vkDevice, stagingBuffers.vertices.buffer, &memReqs);
+    memAlloc.allocationSize = memReqs.size;
+    getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &memAlloc.memoryTypeIndex);
+    vkAllocateMemory(s_device.vkDevice, &memAlloc, NULL, &stagingBuffers.vertices.memory);
+
+    vkMapMemory(s_device.vkDevice, stagingBuffers.vertices.memory, 0, verticesSize, 0, &data);
+    memcpy(data, vertices, verticesSize);
+    vkUnmapMemory(s_device.vkDevice, stagingBuffers.vertices.memory);
+    vkBindBufferMemory(s_device.vkDevice, stagingBuffers.vertices.buffer, stagingBuffers.vertices.memory, 0);
+
+    vertexBufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    vkCreateBuffer(s_device.vkDevice, &vertexBufferInfo, NULL, &s_device.vkVertexBuffer);
+    vkGetBufferMemoryRequirements(s_device.vkDevice, s_device.vkVertexBuffer, &memReqs);
+    memAlloc.allocationSize = memReqs.size;
+    getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memAlloc.memoryTypeIndex);
+    vkAllocateMemory(s_device.vkDevice, &memAlloc, NULL, &s_device.vkVertexBufferMemory);
+    vkBindBufferMemory(s_device.vkDevice, s_device.vkVertexBuffer, s_device.vkVertexBufferMemory, 0);
+
+    VkBufferCreateInfo indexBufferInfo = {};
+    indexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    indexBufferInfo.size = indicesSize;
+    indexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    vkCreateBuffer(s_device.vkDevice, &indexBufferInfo, NULL, &stagingBuffers.indices.buffer);
+    vkGetBufferMemoryRequirements(s_device.vkDevice, stagingBuffers.indices.buffer, &memReqs);
+    memAlloc.allocationSize = memReqs.size;
+    getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &memAlloc.memoryTypeIndex);
+    vkAllocateMemory(s_device.vkDevice, &memAlloc, NULL, &stagingBuffers.indices.memory);
+    vkMapMemory(s_device.vkDevice, stagingBuffers.indices.memory, 0, indicesSize, 0, &data);
+    memcpy(data, indices, indicesSize);
+    vkUnmapMemory(s_device.vkDevice, stagingBuffers.indices.memory);
+    vkBindBufferMemory(s_device.vkDevice, stagingBuffers.indices.buffer, stagingBuffers.indices.memory, 0);
+
+    indexBufferInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    vkCreateBuffer(s_device.vkDevice, &indexBufferInfo, NULL, &s_device.vkIndexBuffer);
+    vkGetBufferMemoryRequirements(s_device.vkDevice, s_device.vkIndexBuffer, &memReqs);
+    memAlloc.allocationSize = memReqs.size;
+    getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memAlloc.memoryTypeIndex);
+    vkAllocateMemory(s_device.vkDevice, &memAlloc, NULL, &s_device.vkIndexBufferMemory);
+    vkBindBufferMemory(s_device.vkDevice, s_device.vkIndexBuffer, s_device.vkIndexBufferMemory, 0);
+
+    VkCommandBuffer copyCommandBuffer = beginSingleUseCommandBuffer();
+
+    VkBufferCopy copyRegion = {};
+    copyRegion.size = verticesSize;
+    vkCmdCopyBuffer(copyCommandBuffer, stagingBuffers.vertices.buffer, s_device.vkVertexBuffer, 1, &copyRegion);
+    copyRegion.size = indicesSize;
+    vkCmdCopyBuffer(copyCommandBuffer, stagingBuffers.indices.buffer, s_device.vkIndexBuffer, 1, &copyRegion);
+
+    endSingleUseCommandBuffer(copyCommandBuffer);
+
+    vkDestroyBuffer(s_device.vkDevice, stagingBuffers.vertices.buffer, NULL);
+    vkFreeMemory(s_device.vkDevice, stagingBuffers.vertices.memory, NULL);
+    vkDestroyBuffer(s_device.vkDevice, stagingBuffers.indices.buffer, NULL);
+    vkFreeMemory(s_device.vkDevice, stagingBuffers.indices.memory, NULL);
+
+    fprintf(stdout, "set up vertex and index buffers\n");
+
+    s_device.vkVertexBindingDescription.binding = 0;
+    s_device.vkVertexBindingDescription.stride = sizeof(Vertex);
+    s_device.vkVertexBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    s_device.vkVertexAttributeDescriptionCount = 3;
+    s_device.vkVertexAttributeDescriptions = malloc(sizeof(VkVertexInputAttributeDescription) * s_device.vkVertexAttributeDescriptionCount);
+    s_device.vkVertexAttributeDescriptions[0].binding = 0;
+    s_device.vkVertexAttributeDescriptions[0].location = 0;
+    s_device.vkVertexAttributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    s_device.vkVertexAttributeDescriptions[0].offset = 0;
+
+    s_device.vkVertexAttributeDescriptions[1].binding = 0;
+    s_device.vkVertexAttributeDescriptions[1].location = 1;
+    s_device.vkVertexAttributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    s_device.vkVertexAttributeDescriptions[1].offset = sizeof(float) * 3;
+
+    s_device.vkVertexAttributeDescriptions[2].binding = 0;
+    s_device.vkVertexAttributeDescriptions[2].location = 2;
+    s_device.vkVertexAttributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    s_device.vkVertexAttributeDescriptions[2].offset = sizeof(float) * 6;
+}
+
+void createUniformBuffer()
+{
+    VkBufferCreateInfo bufferInfo = {};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = sizeof(UniformBufferData);
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+    vkCreateBuffer(s_device.vkDevice, &bufferInfo, NULL, &s_device.vkUniformBuffer);
+
+    VkMemoryRequirements memReqs;
+    vkGetBufferMemoryRequirements(s_device.vkDevice, s_device.vkUniformBuffer, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+    getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &allocInfo.memoryTypeIndex);
+
+    vkAllocateMemory(s_device.vkDevice, &allocInfo, NULL, &s_device.vkUniformBufferMemory);
+    vkBindBufferMemory(s_device.vkDevice, s_device.vkUniformBuffer, s_device.vkUniformBufferMemory, 0);
+}
+
 void createRenderPass()
 {
-    VkAttachmentDescription attachments[2] = {
+    VkAttachmentDescription attachments[1] = {
         {
             .format = s_device.vkSwapChainFormat,
             .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -1476,15 +1692,15 @@ void createRenderPass()
     depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 */
-    VkAttachmentReference depthAttachmentReference = {};
-    depthAttachmentReference.attachment = 1;
-    depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+//    VkAttachmentReference depthAttachmentReference = {};
+//    depthAttachmentReference.attachment = 1;
+//    depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkSubpassDescription subPassDescription = {};
     subPassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subPassDescription.colorAttachmentCount = 1;
     subPassDescription.pColorAttachments = &colorAttachmentReference;
-    subPassDescription.pDepthStencilAttachment = &depthAttachmentReference;
+//    subPassDescription.pDepthStencilAttachment = &depthAttachmentReference;
 
     VkRenderPassCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -1561,9 +1777,8 @@ void createFramebuffers()
 
 void createGraphicsPipeline()
 {
-#if 0
-    VkShaderModule vertexShaderModule = createShaderModule("Shaders/vert.spv");
-    VkShaderModule fragmentShaderModule = createShaderModule("Shaders/frag.spv");
+    VkShaderModule vertexShaderModule = createShaderModule("Shaders/shader.vert.spv");
+    VkShaderModule fragmentShaderModule = createShaderModule("Shaders/shader.frag.spv");
 
     VkPipelineShaderStageCreateInfo vertexShaderCreateInfo = {};
     vertexShaderCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1582,9 +1797,9 @@ void createGraphicsPipeline()
     VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
     vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputCreateInfo.vertexBindingDescriptionCount = 1;
-    vertexInputCreateInfo.pVertexBindingDescriptions = &m_vkVertexBindingDescription;
+    vertexInputCreateInfo.pVertexBindingDescriptions = &s_device.vkVertexBindingDescription;
     vertexInputCreateInfo.vertexAttributeDescriptionCount = 3;
-    vertexInputCreateInfo.pVertexAttributeDescriptions = m_vkVertexAttributeDescriptions;
+    vertexInputCreateInfo.pVertexAttributeDescriptions = s_device.vkVertexAttributeDescriptions;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
     inputAssemblyCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1594,16 +1809,16 @@ void createGraphicsPipeline()
     VkViewport viewport = {};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = (float)m_vkSwapChainExtent.width;
-    viewport.height = (float)m_vkSwapChainExtent.height;
+    viewport.width = (float)s_device.vkSwapChainExtent.width;
+    viewport.height = (float)s_device.vkSwapChainExtent.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor = {};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
-    scissor.extent.width = m_vkSwapChainExtent.width;
-    scissor.extent.height = m_vkSwapChainExtent.height;
+    scissor.extent.width = s_device.vkSwapChainExtent.width;
+    scissor.extent.height = s_device.vkSwapChainExtent.height;
 
     VkPipelineViewportStateCreateInfo viewportCreateInfo = {};
     viewportCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1671,7 +1886,7 @@ void createGraphicsPipeline()
     samplerLayoutBinding.binding = 1;
     samplerLayoutBinding.descriptorCount = 1;
     samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerLayoutBinding.pImmutableSamplers = nullptr;
+    samplerLayoutBinding.pImmutableSamplers = NULL;
     samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutBinding bindings[] = { uboLayoutBinding, samplerLayoutBinding };
@@ -1680,7 +1895,7 @@ void createGraphicsPipeline()
     descriptorLayoutCreateInfo.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
     descriptorLayoutCreateInfo.pBindings = bindings;    // &uboLayoutBinding;
 
-    if (vkCreateDescriptorSetLayout(m_vkDevice, &descriptorLayoutCreateInfo, nullptr, &m_vkDescriptorSetLayout) != VK_SUCCESS)
+    if (vkCreateDescriptorSetLayout(s_device.vkDevice, &descriptorLayoutCreateInfo, NULL, &s_device.vkDescriptorSetLayout) != VK_SUCCESS)
     {
         fprintf(stderr, "failed to create descriptor layout\n");
         exit(1);
@@ -1693,9 +1908,9 @@ void createGraphicsPipeline()
     VkPipelineLayoutCreateInfo layoutCreateInfo = {};
     layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutCreateInfo.setLayoutCount = 1;
-    layoutCreateInfo.pSetLayouts = &m_vkDescriptorSetLayout;
+    layoutCreateInfo.pSetLayouts = &s_device.vkDescriptorSetLayout;
 
-    if (vkCreatePipelineLayout(m_vkDevice, &layoutCreateInfo, nullptr, &m_vkPipelineLayout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(s_device.vkDevice, &layoutCreateInfo, NULL, &s_device.vkPipelineLayout) != VK_SUCCESS)
     {
         fprintf(stderr, "failed to create pipeline layout\n");
         exit(1);
@@ -1716,13 +1931,13 @@ void createGraphicsPipeline()
     pipelineCreateInfo.pMultisampleState = &multisampleCreateInfo;
     pipelineCreateInfo.pDepthStencilState = &depthStencilCreateInfo;
     pipelineCreateInfo.pColorBlendState = &colorBlendCreateInfo;
-    pipelineCreateInfo.layout = m_vkPipelineLayout;
-    pipelineCreateInfo.renderPass = m_vkRenderPass;
+    pipelineCreateInfo.layout = s_device.vkPipelineLayout;
+    pipelineCreateInfo.renderPass = s_device.vkRenderPass;
     pipelineCreateInfo.subpass = 0;
     pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineCreateInfo.basePipelineIndex = -1;
 
-    if (vkCreateGraphicsPipelines(m_vkDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &m_vkGraphicsPipeline) != VK_SUCCESS)
+    if (vkCreateGraphicsPipelines(s_device.vkDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &s_device.vkGraphicsPipeline) != VK_SUCCESS)
     {
         fprintf(stderr, "failed to create graphics pipeline\n");
         exit(1);
@@ -1732,9 +1947,8 @@ void createGraphicsPipeline()
         fprintf(stdout, "created graphics pipeline\n");
     }
 
-    vkDestroyShaderModule(m_vkDevice, vertexShaderModule, nullptr);
-    vkDestroyShaderModule(m_vkDevice, fragmentShaderModule, nullptr);
-#endif
+    vkDestroyShaderModule(s_device.vkDevice, vertexShaderModule, NULL);
+    vkDestroyShaderModule(s_device.vkDevice, fragmentShaderModule, NULL);
 }
 
 void createDescriptorSet()
@@ -1924,4 +2138,105 @@ void createCommandBuffers()
     rsys_print("recorded command buffers\n");
 
     vkDestroyPipelineLayout(s_device.vkDevice, s_device.vkPipelineLayout, NULL);
+}
+
+VkShaderModule createShaderModule(const char *filename)
+{
+    FILE *fptr = fopen(filename, "rb");
+    fseek(fptr, 0, SEEK_END);
+    size_t fileSize = ftell(fptr);
+    uint8_t *fileBytes = (uint8_t *)alloca(fileSize);
+    fseek(fptr, 0, SEEK_SET);
+    fread(fileBytes, 1, fileSize, fptr);
+    fclose(fptr);
+
+    VkShaderModuleCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = fileSize;
+    createInfo.pCode = (uint32_t *)fileBytes;
+
+    VkShaderModule shaderModule;
+    if (vkCreateShaderModule(s_device.vkDevice, &createInfo, NULL, &shaderModule) != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to create shader module for %s\n", filename);
+        exit(1);
+    }
+
+    fprintf(stdout, "created shader module for %s\n", filename);
+
+    return shaderModule;
+}
+
+VkBool32 getMemoryType(uint32_t typeBits, VkMemoryPropertyFlags  properties, uint32_t* typeIndex)
+{
+    VkPhysicalDeviceMemoryProperties deviceMemoryProperties = {};
+    vkGetPhysicalDeviceMemoryProperties(s_device.vkPhysicalDevices[0], &deviceMemoryProperties);
+
+    for (uint32_t i = 0; i < 32; i++)
+    {
+        if (typeBits & (1 << i))    // && m_vkPhysicalDeviceMemoryProperties[0].memoryTypes[i].propertyFlags & properties) == properties)
+        {
+            const VkMemoryType* type = &deviceMemoryProperties.memoryTypes[i];
+            if ((type->propertyFlags & properties) == properties)
+            {
+                *typeIndex = i;
+                return true;
+            }
+        }
+//        typeBits >>= 1;
+    }
+    fprintf(stderr, "Could not find memory type to satisfy requirements\n");
+    return false;
+}
+
+VkCommandBuffer beginSingleUseCommandBuffer()
+{
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = s_device.vkCommandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(s_device.vkDevice, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    return commandBuffer;
+}
+
+void endSingleUseCommandBuffer(VkCommandBuffer commandBuffer)
+{
+    vkEndCommandBuffer(commandBuffer);
+
+    VkFence fence;
+    VkFenceCreateInfo fenceCreateInfo = {};
+    fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (vkCreateFence(s_device.vkDevice, &fenceCreateInfo, NULL, &fence) != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to create fence.\n");
+    }
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    if (vkQueueSubmit(s_device.vkGraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to submit to queue.\n");
+    }
+
+    if (vkWaitForFences(s_device.vkDevice, 1, &fence, VK_TRUE, kDefaultFenceTimeout) != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to wait on fence.\n");
+    }
+
+    vkDestroyFence(s_device.vkDevice, fence, NULL);
+
+    vkFreeCommandBuffers(s_device.vkDevice, s_device.vkCommandPool, 1, &commandBuffer);
 }

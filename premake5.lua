@@ -116,7 +116,7 @@ project "VulkanL"
       optimize "On"
       libdirs { "lib/Release" }
 
-filter 'files:**.vert or files:**.frag'
+filter { "action:not xcode*", "files:**.vert or files:**.frag" }
    -- A message to display while this build step is running (optional)
    buildmessage 'Compiling %{file.relpath}'
 
