@@ -78,6 +78,8 @@ int main(int argc, char* argv[])
 //			sprintf_s(frameName, sizeof(frameName), "Frame %lld", frameNum++);
 //			ScopeStack frameScope(initScope, frameName, false);
 
+            rgfx_update();
+            rgfx_render();
 //			app->update(frameScope, *pRenderDevice);
 //			app->render(frameScope, *pRenderDevice);
 

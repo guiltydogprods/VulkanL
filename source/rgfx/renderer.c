@@ -1097,6 +1097,98 @@ rgfx_shader rgfx_loadShader(const char* shaderName, const rgfx_shaderType type, 
 
 #pragma GCC diagnostic pop
 
+void rgfx_update()
+{
+    static float angle = 0.0f;
+
+    mat4x4 modelMatrix = mat4x4_rotate(RADIANS(angle), (vec4) { 0.0f, 0.0f, 1.0f, 0.0f });
+
+    vec4 eye = { 0.0f, 0.0f, 2.5f, 1.0f };
+    vec4 at = { 0.0f, 0.0f, 0.0f, 1.0f };
+    vec4 up = { 0.0f, 1.0f, 0.0f, 0.0f };
+    s_appData.worldMatrix = mat4x4_lookAtWorld(eye, at, up);
+    s_appData.viewMatrix = mat4x4_orthoInverse(s_appData.worldMatrix);
+
+    mat4x4 viewMatrix = s_appData.viewMatrix;
+    mat4x4 projectionMatrix = s_appData.projectionMatrix;
+
+    void *data;
+    vkMapMemory(s_device.vkDevice, s_device.vkUniformBufferMemory, 0, sizeof(UniformBufferData), 0, &data);
+    UniformBufferData *uboData = (UniformBufferData *)data;
+    uboData->transformationMatrix = mat4x4_mul(projectionMatrix, mat4x4_mul(viewMatrix, modelMatrix));
+    vkUnmapMemory(s_device.vkDevice, s_device.vkUniformBufferMemory);
+
+    angle += 0.25f;
+    if (angle > 360.0f)
+        angle -= 360.0f;
+}
+
+void rgfx_render()
+{
+    uint32_t imageIndex;
+    VkResult res = vkAcquireNextImageKHR(s_device.vkDevice, s_device.vkSwapChain, UINT64_MAX, s_device.vkImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
+    {
+        fprintf(stderr, "failed to acquire image\n");
+//        exit(EXIT_FAILURE);
+    }
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &s_device.vkImageAvailableSemaphore;
+
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &s_device.vkRenderingFinishedSemaphore;
+
+    VkPipelineStageFlags waitDstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    submitInfo.pWaitDstStageMask = &waitDstStageMask;
+
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &s_device.vkCommandBuffers[imageIndex];
+
+    VkFence fence;
+    VkFenceCreateInfo fenceCreateInfo = {};
+    fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (vkCreateFence(s_device.vkDevice, &fenceCreateInfo, NULL, &fence) != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to create fence.\n");
+    }
+    res = vkQueueSubmit(s_device.vkPresentQueue, 1, &submitInfo, fence);
+    if (res != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to submit draw command buffer\n");
+//        exit(EXIT_FAILURE);
+    }
+
+    if (vkWaitForFences(s_device.vkDevice, 1, &fence, VK_TRUE, kDefaultFenceTimeout) != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to wait on fence.\n");
+    }
+
+    vkDestroyFence(s_device.vkDevice, fence, NULL);
+
+    VkPresentInfoKHR presentInfo = {};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &s_device.vkRenderingFinishedSemaphore;
+
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &s_device.vkSwapChain;
+    presentInfo.pImageIndices = &imageIndex;
+
+    res = vkQueuePresentKHR(s_device.vkPresentQueue, &presentInfo);
+
+    if (res != VK_SUCCESS)
+    {
+        fprintf(stderr, "failed to submit present command buffer\n");
+//        exit(EXIT_FAILURE);
+    }
+}
+
+
 void createVkInstance()
 {
 	uint32_t glfwExtensionCount = 0;
@@ -1503,7 +1595,7 @@ void createVertexBuffer()
         { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
         { { -1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
         { {  1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-        { { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
+        { {  1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
 
 //        { { -2.0f, -1.0f, -1.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
 //        { { -2.0f, 1.0f, -1.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
@@ -2093,7 +2185,7 @@ void createCommandBuffers()
         renderPassBeginInfo.renderArea.offset.x = 0;
         renderPassBeginInfo.renderArea.offset.y = 0;
         renderPassBeginInfo.renderArea.extent = s_device.vkSwapChainExtent;
-        renderPassBeginInfo.clearValueCount = sizeof(clearValues) / sizeof(VkClearValue);
+        renderPassBeginInfo.clearValueCount = 1; //sizeof(clearValues) / sizeof(VkClearValue);
         renderPassBeginInfo.pClearValues = clearValues;
 
         vkCmdBeginRenderPass(s_device.vkCommandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -2107,7 +2199,7 @@ void createCommandBuffers()
 
         vkCmdBindIndexBuffer(s_device.vkCommandBuffers[i], s_device.vkIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-        vkCmdDrawIndexed(s_device.vkCommandBuffers[i], 12, 1, 0, 0, 0);
+        vkCmdDrawIndexed(s_device.vkCommandBuffers[i], 6, 1, 0, 0, 0);
 
         vkCmdEndRenderPass(s_device.vkCommandBuffers[i]);
 

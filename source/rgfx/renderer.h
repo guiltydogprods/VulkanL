@@ -732,6 +732,10 @@ void rgfx_renderFullscreenQuad(rgfx_texture tex);
 //void rgfx_drawDebugLine(vec4 p1, vec4 p2);
 //void rgfx_drawDebugLines();
 
+// CLR - Very Temporary
+void rgfx_update();
+void rgfx_render();
+
 typedef struct rgfxApi
 {
 	rgfx_mesh (*findMesh)(uint32_t meshHash);
