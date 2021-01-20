@@ -8,26 +8,22 @@
 // TODO: reference additional headers your program requires here
 
 #pragma hdrstop
-
-#if defined(WIN32)
-#include <Windows.h>
-#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
-#endif
-
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
-//#include <algorithm>
+#define __STDC_WANT_LIB_EXT1__1
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 //#include <string>
 #include "system.h"
 //#include "resource.h"
 #include "rgfx/renderer.h"
+
 
 ///#include "Framework/LinearAllocator.h"
 //#include "Framework/ScopeStackAllocator.h"

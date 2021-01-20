@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	if (!glfwVulkanSupported)
+	if (!glfwVulkanSupported())
 	{
 		rsys_print("glfw could not fine Vulkan Loader or ICD.\n");
 		exit(1);

@@ -1544,7 +1544,7 @@ void createSwapChain()
             .components.g = VK_COMPONENT_SWIZZLE_IDENTITY,
             .components.b = VK_COMPONENT_SWIZZLE_IDENTITY,
             .components.a = VK_COMPONENT_SWIZZLE_IDENTITY,
-            .subresourceRange.aspectMask = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .subresourceRange.baseMipLevel = 0,
             .subresourceRange.levelCount = 1,
             .subresourceRange.baseArrayLayer = 0,
@@ -2112,7 +2112,7 @@ void createDescriptorSet()
     writeDescriptorSet[1].descriptorCount = 1;
     writeDescriptorSet[1].pImageInfo = &imageInfo;
 
-    vkUpdateDescriptorSets(s_device.vkDevice, 2, writeDescriptorSet, 0, NULL);
+    vkUpdateDescriptorSets(s_device.vkDevice, 1, writeDescriptorSet, 0, NULL);
 }
 
 void createCommandBuffers()
