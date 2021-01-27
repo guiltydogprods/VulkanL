@@ -76,6 +76,22 @@ filter { "action:xcode*", "configurations:Debug" }
       ["ENABLE_TESTABILITY"] = "YES";
    } 
 
+filter "action:gmake*"
+   system "macosx"
+   architecture "ARM64"
+   vectorextensions "NEON"
+   toolset "clang"
+   defines { "MACOS" }    
+   buildoptions { "-Xclang -flto-visibility-public-std -fblocks" }
+   linkoptions { "-framework Cocoa -framework IOKit -framework CoreFoundation -framework IOSurface -framework Metal -framework QuartzCore" }
+   sysincludedirs { "external/glfw-3.3/include", "../MoltenVK/Package/Release/MoltenVK/include", "external" }
+   includedirs { ".", "source", "external/glfw-3.3.2/include", "external/stb" } --, "extenral/threads" }
+   libdirs { "external/glfw-3.3/lib-macos", "../MoltenVK/Package/Release/MoltenVK/MoltenVK.xcframework/macos-arm64_x86_64" }
+   links { "c++", "glfw3", "MoltenVK" }
+   architecture "ARM64"  
+   vectorextensions "NEON"
+   defines { "ARM64", "RE_PLATFORM_MACOS" }
+
 filter {}
 
 project "VulkanL"
@@ -125,7 +141,7 @@ project "VulkanL"
       optimize "On"
       libdirs { "lib/Release" }
 
-   filter { "action:not xcode*", "files:**.vert or files:**.frag" }
+   filter { "action:vs*", "files:**.vert or files:**.frag" }
    -- A message to display while this build step is running (optional)
       buildmessage 'Compiling %{file.relpath}'
 
