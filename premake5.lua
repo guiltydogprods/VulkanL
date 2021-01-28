@@ -77,20 +77,43 @@ filter { "action:xcode*", "configurations:Debug" }
    } 
 
 filter "action:gmake*"
-   system "macosx"
+--   system "macosx"
+--   architecture "ARM64"
+--   vectorextensions "NEON"
+   toolset "clang"
+--   defines { "MACOS" }    
+--   buildoptions { "-Xclang -flto-visibility-public-std -fblocks" }
+--   linkoptions { "-framework Cocoa -framework IOKit -framework CoreFoundation -framework IOSurface -framework Metal -framework QuartzCore" }
+--   sysincludedirs { "external/glfw-3.3/include", "../MoltenVK/Package/Release/MoltenVK/include", "external" }
+--   includedirs { ".", "source", "external/glfw-3.3.2/include", "external/stb" } --, "extenral/threads" }
+--   libdirs { "external/glfw-3.3/lib-macos", "../MoltenVK/Package/Release/MoltenVK/MoltenVK.xcframework/macos-arm64_x86_64" }
+--   links { "c++", "glfw3", "MoltenVK" }
+--   defines { "ARM64", "RE_PLATFORM_MACOS" }
+
+filter { "action:gmake*", "system:windows" }
+   architecture "x86_64"  
+   vectorextensions "SSE4.1"
+--   toolset "msc-clangcl"
+   includedirs { ".", "source", "$(VK_SDK_PATH)/Include", "external/glfw-3.3.2/include", "external/stb" } --, "extenral/threads" }
+--   sysincludedirs { "external/threads" }
+   libdirs { "$(VK_SDK_PATH)/Lib" }
+   libdirs { "external/glfw-3.3.2/lib-vc2019" }
+   links { "vulkan-1.lib", "glfw3dll" }
+   defines { "WIN32", "RE_PLATFORM_WIN64", "_CRT_SECURE_NO_WARNINGS", "RGFX_USE_VULKAN" }
+   buildoptions { "-std=c11 -gno-column-info -ffast-math -Xclang -flto-visibility-public-std -march=native" }
+   linkoptions { "-g -gno-column-info" } 
+
+
+filter { "action:gmake*", "system:macosx" }
    architecture "ARM64"
    vectorextensions "NEON"
-   toolset "clang"
    defines { "MACOS" }    
-   buildoptions { "-Xclang -flto-visibility-public-std -fblocks" }
+   defines { "ARM64", "RE_PLATFORM_MACOS" }
    linkoptions { "-framework Cocoa -framework IOKit -framework CoreFoundation -framework IOSurface -framework Metal -framework QuartzCore" }
    sysincludedirs { "external/glfw-3.3/include", "../MoltenVK/Package/Release/MoltenVK/include", "external" }
    includedirs { ".", "source", "external/glfw-3.3.2/include", "external/stb" } --, "extenral/threads" }
    libdirs { "external/glfw-3.3/lib-macos", "../MoltenVK/Package/Release/MoltenVK/MoltenVK.xcframework/macos-arm64_x86_64" }
    links { "c++", "glfw3", "MoltenVK" }
-   architecture "ARM64"  
-   vectorextensions "NEON"
-   defines { "ARM64", "RE_PLATFORM_MACOS" }
 
 filter {}
 
