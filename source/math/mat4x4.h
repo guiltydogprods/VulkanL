@@ -84,6 +84,36 @@ static inline mat4x4 mat4x4_orthoInverse(const mat4x4 mat)
 	return result;
 }
 
+static inline mat4x4 mat4x4_inverse(const mat4x4 mat)
+{
+    mat4x4 srcMat = {
+        .xAxis = mat.xAxis,
+        .yAxis = mat.yAxis,
+        .zAxis = mat.zAxis,
+        .wAxis = mat.wAxis,
+    };
+
+    mat4x4 resMat = mat4x4_identity();
+
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        float tmp = 1.0f / srcMat.axis[i][i];
+        resMat.axis[i] *= tmp;
+        srcMat.axis[i] *= tmp;
+
+        for (int32_t j = 0; j < 4; ++j)
+        {
+            if (j != i)
+            {
+                tmp = srcMat.axis[j][i];
+                resMat.axis[j] -= resMat.axis[i] * tmp;
+                srcMat.axis[j] -= srcMat.axis[i] * tmp;
+            }
+        }
+    }
+    return resMat;
+}
+
 static inline mat4x4 mat4x4_lookAt(const vec4 eye, const vec4 at, const vec4 up)
 {
 	const vec4 zAxis = vec4_normalize(eye - at);
