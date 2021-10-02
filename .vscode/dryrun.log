@@ -1,0 +1,9 @@
+make VulkanL --dry-run --keep-going --print-directory
+make: Entering directory `/Users/Claire/Development/VulkanL'
+echo "==== Building VulkanL (debug_x64) ===="
+/Applications/Xcode.app/Contents/Developer/usr/bin/make --no-print-directory -C source -f Makefile config=debug_x64
+ 
+:
+ 
+make: Leaving directory `/Users/Claire/Development/VulkanL'
+ 

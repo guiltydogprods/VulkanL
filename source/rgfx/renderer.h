@@ -81,7 +81,8 @@ typedef struct rgfx_bufferInfo			// 28 bytes
 	uint32_t		writeIndex;			// 4 bytes
 	uint32_t		stride;				// 4 bytes
 	uint32_t		flags;				// 4 bytes
-	GLuint			name;				// 4 bytes
+	VkBuffer		vkBuffer;			// 4 bytes
+//    rgfx_gpu_alloc_info_vk
 }rgfx_bufferInfo;
 
 typedef struct rgfx_instancedMeshInfo

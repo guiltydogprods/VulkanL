@@ -1,0 +1,9 @@
+{
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "/Users/Claire/Development/VulkanL",
+            "binaryPath": "/Users/Claire/Development/VulkanL/bin/Debug/VulkanL",
+            "binaryArgs": []
+        }
+    ]
+}
