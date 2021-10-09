@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "clang - Build and debug active file",
-            "type": "cppdbg",
+            "type": "lldb", //"cppdbg",
             "request": "launch",
             "targetArchitecture": "arm64",     
             "program": "${fileDirname}/${fileBasenameNoExtension}",

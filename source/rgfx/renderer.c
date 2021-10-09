@@ -49,6 +49,7 @@
 #define USE_SEPARATE_SHADERS_OBJECTS
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
+extern inline rgfx_buffer rgfx_createBuffer(const rgfx_bufferDesc* desc);
 extern inline GLuint rgfx_getNativeBufferFlags(uint32_t flags);
 extern inline rgfx_buffer rgfx_createBuffer(const rgfx_bufferDesc* desc);
 extern inline void* rgfx_mapBuffer(rgfx_buffer buffer);
@@ -102,13 +103,13 @@ void openglCallbackFunction(GLenum source, GLenum type, GLuint id, GLenum severi
 void rgfx_initialize(const rgfx_initParams* params)
 {
     rgfx_initializePlatform(params);
-/*
+
     s_rendererData.cameraTransforms = rgfx_createBuffer(&(rgfx_bufferDesc) {
         .capacity = sizeof(rgfx_cameraTransform) * MAX_CAMERAS,
         .stride = sizeof(rgfx_cameraTransform),
         .flags = kMapWriteBit
     });
-*/
+
     float dt = 0.0f;
     static float angle = 0.0f;
     float sina = 1.5f * sinf(RADIANS(angle));
@@ -980,7 +981,7 @@ void rgfx_update()
     mat4x4 projectionMatrix = s_appData.projectionMatrix;
 
     rgfx_updateTransformsTemp(modelMatrix, viewMatrix, projectionMatrix);
-
+        
     angle += 0.25f;
     if (angle > 360.0f)
         angle -= 360.0f;

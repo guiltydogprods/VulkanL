@@ -1,9 +1,35 @@
-make VulkanL --dry-run --keep-going --print-directory
+make VulkanL --dry-run --always-make --keep-going --print-directory
 make: Entering directory `/Users/Claire/Development/VulkanL'
 echo "==== Building VulkanL (debug_x64) ===="
 /Applications/Xcode.app/Contents/Developer/usr/bin/make --no-print-directory -C source -f Makefile config=debug_x64
+echo Creating obj/x64/Debug
+mkdir -p obj/x64/Debug
+echo stdafx.h
+clang -x c-header   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks -o "obj/x64/Debug/stdafx.h.gch" -MF "obj/x64/Debug/stdafx.h.d" -c "stdafx.h"
+touch "obj/x64/Debug/stdafx.h"
+echo debugRender.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/debugRender.o" -MF "obj/x64/Debug/debugRender.d" -c "rgfx/debugRender.c"
+echo file.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/file.o" -MF "obj/x64/Debug/file.d" -c "file.c"
+echo hash.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/hash.o" -MF "obj/x64/Debug/hash.d" -c "hash.c"
+echo main.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/main.o" -MF "obj/x64/Debug/main.d" -c "main.c"
+echo renderer.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/renderer.o" -MF "obj/x64/Debug/renderer.d" -c "rgfx/renderer.c"
+echo renderer_vk.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/renderer_vk.o" -MF "obj/x64/Debug/renderer_vk.d" -c "rgfx/Vulkan/renderer_vk.c"
+echo resource.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/resource.o" -MF "obj/x64/Debug/resource.d" -c "resource.c"
+echo stdafx.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/stdafx.o" -MF "obj/x64/Debug/stdafx.d" -c "stdafx.c"
  
+echo system.c
+clang -include obj/x64/Debug/stdafx.h   -MMD -MP -D_CRT_SECURE_NO_WARNINGS -DMACOS -DARM64 -DRE_PLATFORM_MACOS -DDEBUG -DMEM_DEBUG -I.. -I. -I"/Include" -I../external/glfw-3.3/include -I../external/stb -g -Xclang -flto-visibility-public-std -fblocks  -o "obj/x64/Debug/system.o" -MF "obj/x64/Debug/system.d" -c "system.c"
+echo Creating ../bin/Debug
+mkdir -p ../bin/Debug
+echo Linking VulkanL
+clang -o "../bin/Debug/VulkanL"  obj/x64/Debug/debugRender.o obj/x64/Debug/file.o obj/x64/Debug/hash.o obj/x64/Debug/main.o obj/x64/Debug/renderer.o obj/x64/Debug/renderer_vk.o obj/x64/Debug/resource.o obj/x64/Debug/stdafx.o obj/x64/Debug/system.o   -L../external/glfw-3.3/lib-macos -L"/lib" -L../lib/Debug -framework Cocoa -framework IOKit -framework CoreFoundation -framework IOSurface -framework Metal -framework QuartzCore -lglfw3 -lvulkan
 :
- 
 make: Leaving directory `/Users/Claire/Development/VulkanL'
  

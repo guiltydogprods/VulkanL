@@ -26,7 +26,7 @@ filter "action:xcode*"
    toolset "clang"
    defines { "MACOS" }    
    local sdkpath = os.getenv("VULKAN_SDK")
-   buildoptions { "-Xclang -flto-visibility-public-std -fblocks" }
+   buildoptions { "-Xclang -flto-visibility-public-std -fblocks -fenable-matrix" }
    linkoptions { "-framework Cocoa -framework IOKit -framework CoreFoundation -framework IOSurface -framework Metal -framework QuartzCore" }
    sysincludedirs { "external/glfw-3.3/include", sdkpath .. "/Include" } --, "external" }
    includedirs { ".", "source", "external/stb" } --, "extenral/threads" }

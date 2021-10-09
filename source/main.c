@@ -23,6 +23,25 @@ static void size_callback(GLFWwindow* window, int width, int height)
 
 int main(int argc, char* argv[])
 {
+    const int32_t kNumElems = 10;
+    int32_t kArray[kNumElems] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    int32_t nb = kNumElems;
+    
+    int32_t *restrict elem = kArray;
+    printf("while loop\n");
+    while(nb--)
+    {
+        printf("Elem: %d\n", *elem);
+        elem++;
+    }
+    
+    elem = kArray;
+
+    for (int32_t i = 0, nb = kNumElems; nb--; ++i)
+    {
+        printf("Elem[%d]: %d\n", i, *elem);
+        elem++;
+    }
 //	Application* app = Application::GetApplication();
 
 	if (!glfwInit())
