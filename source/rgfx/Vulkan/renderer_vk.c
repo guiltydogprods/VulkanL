@@ -482,7 +482,11 @@ void createDevice(void) //ScopeStack& scope)
         .ppEnabledExtensionNames = &deviceExtensions,
         .pEnabledFeatures = &s_device.vkPhysicalDeviceFeatures[s_device.selectedDevice],
     }, NULL, &s_device.vkDevice);
-// CLR - Should check for errors here.
+	if (res != VK_SUCCESS)
+	{
+		rsys_print("failed to create Vulkan device\n");
+		exit(EXIT_FAILURE);
+	}
     vkGetDeviceQueue(s_device.vkDevice, s_device.vkGraphicsQueueFamilyIndex, 0, &s_device.vkGraphicsQueue);
     vkGetDeviceQueue(s_device.vkDevice, s_device.vkPresentQueueFamilyIndex, 0, &s_device.vkPresentQueue);
     rsys_print("acquired graphics and presentation queues\n");
@@ -575,6 +579,11 @@ void createSwapChain()
     s_device.vkSwapChainFormat = supportedSurfaceFormats[0].format;
 
     VkResult res = vkCreateSwapchainKHR(s_device.vkDevice, &swapchainCreateInfo, NULL, &s_device.vkSwapChain);
+	if (res != VK_SUCCESS)
+	{
+		rsys_print("failed to create swap chain\n");
+		exit(EXIT_FAILURE);
+	}
 
     vkGetSwapchainImagesKHR(s_device.vkDevice, s_device.vkSwapChain, &s_device.vkSwapChainImageCount, NULL);
     VkImage* swapChainImages = (VkImage*)alloca(sizeof(VkImage) * s_device.vkSwapChainImageCount);
@@ -854,7 +863,8 @@ void createTexture(const char* filename)
     uint32_t fourCC = *(uint32_t *)&(header[80]);
 
     uint32_t components = (fourCC == FOURCC_DXT1) ? 3 : 4;
-
+    (void)linearSize;
+    (void)components;
     VkFormat format;
     switch (fourCC)
     {
@@ -1451,8 +1461,8 @@ void createCommandBuffers()
 
     // Note: contains value for each subresource range
     VkClearValue clearValues[2];
-    clearValues[0].color = (VkClearColorValue) { 0.0f, 0.0f, 0.25f, 1.0f };  // R, G, B, A
-    clearValues[1].depthStencil = (VkClearDepthStencilValue) { 1.0f, 0 };    // Depth / Stencil
+    clearValues[0].color = (VkClearColorValue){ .float32 = {0.0f, 0.0f, 0.25f, 1.0f}};  // R, G, B, A
+    clearValues[1].depthStencil = (VkClearDepthStencilValue) { 1.0f, 0 };               // Depth / Stencil
 
     VkImageSubresourceRange subResourceRange = {};
     subResourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;

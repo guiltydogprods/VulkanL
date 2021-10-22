@@ -176,5 +176,5 @@ project "VulkanL"
       }
 
    -- One or more outputs resulting from the build (required)
-   --buildoutputs { '%{file.basename}%{file.extension}.spv' }
-      buildoutputs { '%{file.relpath}.spv' }
+--	  buildoutputs { '%{file.directory}'\'%{file.name}%{file.extension}.spv' }
+      buildoutputs { '%{file.abspath}.spv' }

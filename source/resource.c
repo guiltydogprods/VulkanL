@@ -150,6 +150,7 @@ Mesh *rres_findMesh(uint32_t filenameHash)
 		{
 			int32_t resIndex = rsys_hm_find(&s_resourceLookup, filenameHash);
 			const char *meshName = s_resourceTable.block + s_resourceTable.resources[resIndex].filenameIndex;
+			(void)meshName;
 //			mesh_load(meshName, mesh);
 		}
 	}
@@ -184,6 +185,7 @@ rgfx_texture rres_findTexture(uint32_t filenameHash)
 		{
 			int32_t resIndex = rsys_hm_find(&s_resourceLookup, filenameHash);
 			const char* texName = s_resourceTable.block + s_resourceTable.resources[resIndex].filenameIndex;
+			(void)texName;
 //			tex = texture_load(texName, NULL);
 			s_textures[index] = tex;
 		}
