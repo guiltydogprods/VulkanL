@@ -3,7 +3,6 @@
 
 extern rgfx_device_vk s_device;
 extern rgfx_rendererData s_rendererData;
-void openglCallbackFunction(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam);
 
 void rgfx_initializePlatform(const rgfx_initParams* params);
 void rgfx_updateTransformsTemp(mat4x4 modelMatrix, mat4x4 viewMatrix, mat4x4 projectionMatrix);

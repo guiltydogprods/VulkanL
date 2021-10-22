@@ -4,7 +4,7 @@
 //
 //  Created by Claire Rogers on 23/09/2021.
 //
-
+#include "stdafx.h"
 #include <stdio.h>
 #include "rgfx_types_internal_vk.h"
 

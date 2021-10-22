@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "renderer.h"
 #ifdef RE_PLATFORM_WIN64
-//#include "GL4.6/renderer_gl.h"
+#include "Vulkan/renderer_vk.h"
 #elif RE_PLATFORM_MACOS
 #include "Vulkan/renderer_vk.h"
 #else
@@ -50,13 +50,12 @@
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 extern inline rgfx_buffer rgfx_createBuffer(const rgfx_bufferDesc* desc);
-extern inline GLuint rgfx_getNativeBufferFlags(uint32_t flags);
-extern inline rgfx_buffer rgfx_createBuffer(const rgfx_bufferDesc* desc);
 extern inline void* rgfx_mapBuffer(rgfx_buffer buffer);
 extern inline void* rgfx_mapBufferRange(rgfx_buffer buffer, int64_t offset, int64_t size);
 extern inline void rgfx_unmapBuffer(rgfx_buffer buffer);
 extern inline void rgfx_bindBuffer(int32_t index, rgfx_buffer buffer);
 extern inline void rgfx_bindBufferRange(int32_t index, rgfx_buffer buffer, int64_t offset, int64_t size);
+extern inline GLuint rgfx_getNativeBufferFlags(uint32_t flags);
 
 extern inline rgfx_vertexBuffer rgfx_createVertexBuffer(const rgfx_vertexBufferDesc* desc);
 extern inline uint32_t rgfx_writeVertexData(rgfx_vertexBuffer vb, size_t sizeInBytes, uint8_t* vertexData);
@@ -102,15 +101,15 @@ void openglCallbackFunction(GLenum source, GLenum type, GLuint id, GLenum severi
 
 void rgfx_initialize(const rgfx_initParams* params)
 {
-    rgfx_initializePlatform(params);
+	rgfx_initializePlatform(params);
 
-    s_rendererData.cameraTransforms = rgfx_createBuffer(&(rgfx_bufferDesc) {
-        .capacity = sizeof(rgfx_cameraTransform) * MAX_CAMERAS,
-        .stride = sizeof(rgfx_cameraTransform),
-        .flags = kMapWriteBit
-    });
+	s_rendererData.cameraTransforms = rgfx_createBuffer(&(rgfx_bufferDesc) {
+		.capacity = sizeof(rgfx_cameraTransform) * MAX_CAMERAS,
+		.stride = sizeof(rgfx_cameraTransform),
+		.flags = kMapWriteBit
+	});
 
-    float dt = 0.0f;
+	float dt = 0.0f;
     static float angle = 0.0f;
     float sina = 1.5f * sinf(RADIANS(angle));
     float cosa = 1.5f * cosf(RADIANS(angle));
@@ -615,7 +614,7 @@ void rgfx_addLight(vec4 position, vec4 color)
 
 void rgfx_removeAllMeshInstances()
 {
-	s_rendererData.numMeshInstances = 0;
+//	s_rendererData.numMeshInstances = 0;
 }
 
 void rgfx_beginDefaultPass(const rgfx_passAction* passAction, int width, int height)
